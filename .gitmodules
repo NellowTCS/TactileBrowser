@@ -1,3 +1,6 @@
 [submodule "lexbor"]
 	path = src/main/lexbor
 	url = https://github.com/lexbor/lexbor.git
+[submodule "src/main/elk"]
+	path = src/main/elk
+	url = https://github.com/cesanta/elk.git
