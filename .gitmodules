@@ -13,3 +13,4 @@
 [submodule "desktop-src/main/lvgl"]
 	path = desktop-src/main/lvgl
 	url = https://github.com/lvgl/lvgl.git
+
