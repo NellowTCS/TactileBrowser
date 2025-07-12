@@ -4,13 +4,14 @@
 [submodule "src/main/elk"]
 	path = src/main/elk
 	url = https://github.com/cesanta/elk.git
-[submodule "lexbor"]
-	path = desktop-src/main/lexbor
-	url = https://github.com/lexbor/lexbor.git
+
+
 [submodule "src/main/elk"]
 	path = desktop-src/main/elk
 	url = https://github.com/cesanta/elk.git
 [submodule "desktop-src/main/lvgl"]
 	path = desktop-src/main/lvgl
 	url = https://github.com/lvgl/lvgl.git
-
+[submodule "lexbor"]
+	path = desktop-src/main/lexbor
+	url = https://github.com/lexbor/lexbor.git
