@@ -15,3 +15,6 @@
 [submodule "lexbor"]
 	path = desktop-src/main/lexbor
 	url = https://github.com/lexbor/lexbor.git
+[submodule "lvgl"]
+	path = desktop-src/main/lvgl
+	url = https://github.com/lvgl/lvgl.git
