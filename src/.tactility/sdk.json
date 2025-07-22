@@ -1,0 +1,8 @@
+{
+	"toolCompatibility": "^.*$",
+	"toolVersion": "1.1.0",
+	"toolDownloadUrl": "https://raw.githubusercontent.com/ByteWelder/TactilityTool/refs/heads/main/tactility.py",
+	"versions": {
+		"0.4.0" : { "platforms": [ "esp32", "esp32s3"] }
+	}
+}

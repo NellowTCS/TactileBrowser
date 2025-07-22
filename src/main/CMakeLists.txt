@@ -1,11 +1,13 @@
-cmake_minimum_required(VERSION 3.20)
+file(GLOB_RECURSE SOURCE_FILES Source/*.c)
 
-project(TactileBrowserDesktop C)
+idf_component_register(
+    SRCS ${SOURCE_FILES}
+    INCLUDE_DIRS "Source" "lexbor/source"
+    REQUIRES TactilitySDK esp_http_client
+)
 
-set(CMAKE_C_STANDARD 99)
+set_target_properties(${COMPONENT_LIB} PROPERTIES C_STANDARD 99)
 
-# This ensures nice debug output
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# Add subdirectory with main app code
-add_subdirectory(main)
+# Add Lexbor
+add_subdirectory(lexbor)
+target_link_libraries(${COMPONENT_LIB} PRIVATE lexbor_static)
