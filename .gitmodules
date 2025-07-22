@@ -1,6 +1,3 @@
-[submodule "lexbor-main"]
-	path = src/main/lexbor
-	url = https://github.com/lexbor/lexbor.git
 
 [submodule "elk-main"]
 	path = src/main/elk
@@ -13,11 +10,9 @@
 [submodule "lvgl-desktop"]
 	path = desktop-src/main/lvgl
 	url = https://github.com/lvgl/lvgl.git
-
-[submodule "lexbor-desktop"]
+[submodule "desktop-src/main/lexbor"]
 	path = desktop-src/main/lexbor
 	url = https://github.com/lexbor/lexbor.git
-
-[submodule "lvgl-main"]
-	path = src/main/lvgl
-	url = https://github.com/lvgl/lvgl.git
+[submodule "src/main/lexbor"]
+	path = src/main/lexbor
+	url = https://github.com/lexbor/lexbor.git
