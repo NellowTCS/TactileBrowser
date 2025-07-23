@@ -9,3 +9,4 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Add subdirectory with main app code
 add_subdirectory(main)
+
