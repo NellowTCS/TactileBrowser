@@ -96,7 +96,7 @@ jobs:
       - name: Install ESP-IDF v5.4 if cache miss
         if: steps.cache-esp-idf-sdk.outputs.cache-hit != 'true'
         run: |
-          wget https://github.com/espressif/esp-idf/releases/download/v5.4/esp-idf-v5.4.zip -O esp-idf.zip
+          wget -q --show-progress https://github.com/espressif/esp-idf/releases/download/v5.4/esp-idf-v5.4.zip -O esp-idf.zip
           unzip esp-idf.zip
           mv esp-idf-v5.4 esp-idf
           python3 -m pip install --upgrade pip setuptools
