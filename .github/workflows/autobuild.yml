@@ -100,8 +100,11 @@ jobs:
             unzip -q esp-idf.zip
             mv esp-idf-v${{ env.IDF_VERSION }} esp-idf
           fi
+
           python3 -m pip install --upgrade pip setuptools
           python3 esp-idf/tools/idf_tools.py install-python-env
+
+          python3 esp-idf/tools/idf_tools.py install
 
       - name: Setup ESP-IDF environment variables
         run: |
@@ -112,7 +115,7 @@ jobs:
         working-directory: src
         run: |
           . ../esp-idf/export.sh
-          python3 tactility.py build all
+          python3 ../tactility.py build all
 
       - name: Upload ESP32 ELF artifact
         uses: actions/upload-artifact@v4
