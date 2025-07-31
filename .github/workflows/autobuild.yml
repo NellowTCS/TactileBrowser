@@ -97,10 +97,10 @@ jobs:
         if: steps.cache-esp-idf-sdk.outputs.cache-hit != 'true'
         run: |
           wget -q https://github.com/espressif/esp-idf/releases/download/v5.4/esp-idf-v5.4.zip -O esp-idf.zip
-          unzip esp-idf.zip
+          unzip -q esp-idf.zip
           mv esp-idf-v5.4 esp-idf
           python3 -m pip install --upgrade pip setuptools
-          python3 -m pip install -r esp-idf/tools/requirements/requirements.core.txt
+          python3 esp-idf/tools/idf_tools.py install-python-env
 
       - name: Setup ESP-IDF environment variables
         run: |
