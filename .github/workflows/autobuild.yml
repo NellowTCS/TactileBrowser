@@ -207,7 +207,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TactileBrowser-macOS-universal
-          path: desktop-src/main/TactileBrowser.app
+          path: desktop-src/main/
           compression-level: 6
 
   espidf-build:
