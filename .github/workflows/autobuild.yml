@@ -35,10 +35,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # SDL2 is installed natively on macos runners, but ensure installed
+          # Install SDL2 for arm64
           if ! brew list sdl2 &>/dev/null; then
             brew install sdl2
           fi
+          # For x86_64, install via Rosetta if necessary
+          if [ "${{ matrix.arch }}" == "x86_64" ]; then
+            arch -x86_64 /usr/local/bin/brew list sdl2 || arch -x86_64 /usr/local/bin/brew install sdl2
+          fi
+
 
       - name: Set architecture environment variable for CMake
         run: echo "CMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}" >> $GITHUB_ENV
@@ -91,9 +96,9 @@ jobs:
       - name: Install ESP-IDF v5.4 if cache miss
         if: steps.cache-esp-idf-sdk.outputs.cache-hit != 'true'
         run: |
-          wget https://dl.espressif.com/dl/esp-idf/releases/esp-idf-${IDF_VERSION}.zip -O esp-idf-${IDF_VERSION}.zip
-          unzip esp-idf-${IDF_VERSION}.zip
-          mv esp-idf-${IDF_VERSION} esp-idf
+          wget https://github.com/espressif/esp-idf/releases/download/v5.4/esp-idf-v5.4.zip -O esp-idf.zip
+          unzip esp-idf.zip
+          mv esp-idf-v5.4 esp-idf
           python3 -m pip install --upgrade pip setuptools
           python3 -m pip install -r esp-idf/requirements.txt
 
