@@ -165,6 +165,15 @@ jobs:
           key: cmake-build-universal-${{ env.CACHE_KEY_SUFFIX }}
           restore-keys: cmake-build-universal-
 
+      - name: Debug directory structure
+        working-directory: desktop-src
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Contents of desktop-src:"
+          ls -la
+          echo "Looking for CMakeLists.txt files:"
+          find . -name "CMakeLists.txt" -exec echo "Found: {}" \; -exec head -3 {} \;
+
       - name: Build with CMake and Make (universal)
         working-directory: desktop-src
         run: |
