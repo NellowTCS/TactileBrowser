@@ -48,21 +48,29 @@ jobs:
         if: steps.cache-sdl2-src.outputs.cache-hit != 'true'
         run: git clone https://github.com/libsdl-org/SDL.git sdl2-source
 
-      - name: Build SDL2 for x86_64
+      - name: Build and install SDL2 for x86_64
         if: steps.cache-sdl2-builds.outputs.cache-hit != 'true'
         run: |
           mkdir -p $SDL2_BUILD_DIR_X86
           cd $SDL2_BUILD_DIR_X86
-          cmake $SDL2_SRC_DIR -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_BUILD_TYPE=Release
+          cmake $SDL2_SRC_DIR \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$SDL2_BUILD_DIR_X86/install
           make
+          make install
 
-      - name: Build SDL2 for arm64
+      - name: Build and install SDL2 for arm64
         if: steps.cache-sdl2-builds.outputs.cache-hit != 'true'
         run: |
           mkdir -p $SDL2_BUILD_DIR_ARM
           cd $SDL2_BUILD_DIR_ARM
-          cmake $SDL2_SRC_DIR -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_BUILD_TYPE=Release
+          cmake $SDL2_SRC_DIR \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$SDL2_BUILD_DIR_ARM/install
           make
+          make install
 
       - name: Cache SDL2 builds again
         if: steps.cache-sdl2-builds.outputs.cache-hit != 'true'
@@ -77,14 +85,10 @@ jobs:
         run: |
           mkdir -p $SDL2_UNIVERSAL_DIR/lib
           lipo -create \
-            $SDL2_BUILD_DIR_X86/libSDL2-2.0.0.dylib \
-            $SDL2_BUILD_DIR_ARM/libSDL2-2.0.0.dylib \
+            $SDL2_BUILD_DIR_X86/install/lib/libSDL2-2.0.0.dylib \
+            $SDL2_BUILD_DIR_ARM/install/lib/libSDL2-2.0.0.dylib \
             -output $SDL2_UNIVERSAL_DIR/lib/libSDL2-2.0.0.dylib
           echo "Universal SDL2 dylib created at $SDL2_UNIVERSAL_DIR/lib/libSDL2-2.0.0.dylib"
-
-      - name: Calculate CMake cache key suffix
-        id: cmake-cache-key
-        run: echo "CACHE_KEY_SUFFIX=$(git hash-object desktop-src/CMakeLists.txt)" >> $GITHUB_ENV
 
       - name: Cache CMake build files
         uses: actions/cache@v3
