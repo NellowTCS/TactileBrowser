@@ -14,15 +14,15 @@ jobs:
       matrix:
         arch: [arm64, x86_64]
 
-    env:
-      # Caching key suffix to bust cache on changes to CMakeLists.txt
-      CACHE_KEY_SUFFIX: ${{ hashFiles('desktop-src/CMakeLists.txt') }}
-
     steps:
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          
+      - name: Calculate cache key suffix
+        id: cache-key
+        run: echo "CACHE_KEY_SUFFIX=$(git hash-object desktop-src/CMakeLists.txt)" >> $GITHUB_ENV
 
       - name: Cache CMake build files
         uses: actions/cache@v3
