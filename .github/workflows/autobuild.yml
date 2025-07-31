@@ -203,11 +203,17 @@ jobs:
           echo "Checking dylib dependencies:"
           otool -L TactileBrowser
 
+      - name: Create distribution directory
+        working-directory: desktop-src
+        run: |
+          mkdir -p ../dist
+          cp -r main/TactileBrowser.app ../dist/
+
       - name: Archive macOS app bundle (universal)
         uses: actions/upload-artifact@v4
         with:
           name: TactileBrowser-macOS-universal
-          path: desktop-src/main/
+          path: dist/
           compression-level: 6
 
   espidf-build:
