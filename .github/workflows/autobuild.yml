@@ -50,7 +50,7 @@ jobs:
           make
 
       - name: Archive macOS app bundle
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: TactileBrowser-app-${{ matrix.arch }}
           path: desktop-src/main/TactileBrowser.app
@@ -108,13 +108,13 @@ jobs:
           python3 ../tactility.py build all
 
       - name: Upload ESP32 ELF artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: TactileBrowser-esp32-elf
           path: src/build-esp32/TactileBrowser.app.elf
 
       - name: Upload ESP32S3 ELF artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: TactileBrowser-esp32s3-elf
           path: src/build-esp32s3/TactileBrowser.app.elf
