@@ -115,7 +115,7 @@ jobs:
         working-directory: src
         run: |
           . ../esp-idf/export.sh
-          python3 ../tactility.py build all
+          python3 tactility.py build all
 
       - name: Upload ESP32 ELF artifact
         uses: actions/upload-artifact@v4
