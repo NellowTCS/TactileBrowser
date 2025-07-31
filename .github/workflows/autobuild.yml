@@ -165,6 +165,15 @@ jobs:
           key: cmake-build-universal-${{ env.CACHE_KEY_SUFFIX }}
           restore-keys: cmake-build-universal-
 
+      - name: Debug directory structure
+        working-directory: desktop-src
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Contents of desktop-src:"
+          ls -la
+          echo "Looking for CMakeLists.txt files:"
+          find . -name "CMakeLists.txt" -exec echo "Found: {}" \; -exec head -3 {} \;
+
       - name: Build with CMake and Make (universal)
         working-directory: desktop-src
         run: |
@@ -173,11 +182,33 @@ jobs:
                   -DSDL2_INCLUDE_DIR=$SDL2_UNIVERSAL_DIR/include
           make
 
+      - name: Bundle SDL2 dylib with app and fix paths
+        working-directory: desktop-src
+        run: |
+          # Create Frameworks directory in the app bundle
+          mkdir -p main/TactileBrowser.app/Contents/Frameworks
+          
+          # Copy SDL2 dylib to the app bundle
+          cp $SDL2_UNIVERSAL_DIR/lib/libSDL2.dylib main/TactileBrowser.app/Contents/Frameworks/
+          
+          # Also create the versioned dylib that the app expects
+          cd main/TactileBrowser.app/Contents/Frameworks/
+          ln -sf libSDL2.dylib libSDL2-2.0.0.dylib
+          
+          # Fix the dylib paths in the executable using install_name_tool
+          cd ../MacOS
+          install_name_tool -change @rpath/libSDL2-2.0.0.dylib @executable_path/../Frameworks/libSDL2-2.0.0.dylib TactileBrowser
+          
+          # Verify the changes
+          echo "Checking dylib dependencies:"
+          otool -L TactileBrowser
+
       - name: Archive macOS app bundle (universal)
         uses: actions/upload-artifact@v4
         with:
-          name: TactileBrowser-app-universal
+          name: TactileBrowser-macOS-universal
           path: desktop-src/main/TactileBrowser.app
+          compression-level: 6
 
   espidf-build:
     name: Build ESP-IDF apps

@@ -1,277 +1,113 @@
-name: Build TactileBrowser
+cmake_minimum_required(VERSION 3.15)
+project(tactilebrowser C)
 
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wno-unused-parameter")
+set(CMAKE_BUILD_TYPE Debug)
 
-jobs:
-  desktop-build-universal:
-    name: Build Desktop Universal Binary (macOS)
-    runs-on: macos-latest
+# Allow user override of SDL2 paths (passed via -D)
+if(NOT DEFINED SDL2_INCLUDE_DIR OR NOT DEFINED SDL2_LIBRARY)
+    find_package(SDL2)
+    if(NOT SDL2_FOUND)
+        if(APPLE)
+            find_library(SDL2_LIBRARY SDL2)
+            find_path(SDL2_INCLUDE_DIR SDL2/SDL.h PATH_SUFFIXES SDL2)
+            if(SDL2_LIBRARY AND SDL2_INCLUDE_DIR)
+                set(SDL2_LIBRARIES ${SDL2_LIBRARY})
+                get_filename_component(SDL2_INCLUDE_BASE "${SDL2_INCLUDE_DIR}" DIRECTORY)
+                set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_BASE})
+                set(SDL2_FOUND TRUE)
+            else()
+                message(FATAL_ERROR "SDL2 not found. Please install SDL2 or specify SDL2_INCLUDE_DIR and SDL2_LIBRARY.")
+            endif()
+        else()
+            message(FATAL_ERROR "SDL2 not found and no fallback available on this platform.")
+        endif()
+    else()
+        set(SDL2_LIBRARIES SDL2::SDL2)
+        set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
+    endif()
+else()
+    set(SDL2_LIBRARIES ${SDL2_LIBRARY})
+    set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
+endif()
 
-    env:
-      SDL2_SRC_DIR: ${{ github.workspace }}/sdl2-source
-      SDL2_BUILD_DIR_X86: ${{ github.workspace }}/sdl2-build-x86_64
-      SDL2_BUILD_DIR_ARM: ${{ github.workspace }}/sdl2-build-arm64
-      SDL2_UNIVERSAL_DIR: ${{ github.workspace }}/sdl2-universal
+# libcurl
+find_package(CURL REQUIRED)
 
-    steps:
-      - name: Checkout repository with submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+# Check subdirs
+if(NOT EXISTS ${CMAKE_SOURCE_DIR}/main/lvgl/CMakeLists.txt)
+    message(FATAL_ERROR "LVGL subdirectory not found.")
+endif()
+if(NOT EXISTS ${CMAKE_SOURCE_DIR}/main/lexbor/CMakeLists.txt)
+    message(FATAL_ERROR "Lexbor subdirectory not found.")
+endif()
 
-      - name: Calculate cache key suffix
-        id: cache-key
-        run: echo "CACHE_KEY_SUFFIX=$(git hash-object desktop-src/CMakeLists.txt)" >> $GITHUB_ENV
+# LVGL options
+set(LV_USE_SDL ON CACHE BOOL "Use SDL2 driver for LVGL")
+set(LV_USE_DRAW_SDL ON CACHE BOOL "Use SDL2 for drawing")
 
-      - name: Cache SDL2 source
-        uses: actions/cache@v3
-        id: cache-sdl2-src
-        with:
-          path: sdl2-source
-          key: sdl2-source-v1
+add_subdirectory(lvgl EXCLUDE_FROM_ALL)
+target_include_directories(lvgl PUBLIC ${SDL2_INCLUDE_DIRS})
+target_link_libraries(lvgl PUBLIC ${SDL2_LIBRARIES})
 
-      - name: Cache SDL2 builds
-        uses: actions/cache@v3
-        id: cache-sdl2-builds
-        with:
-          path: |
-            sdl2-build-x86_64
-            sdl2-build-arm64
-          key: sdl2-builds-${{ env.CACHE_KEY_SUFFIX }}
-          restore-keys: sdl2-builds-
+add_subdirectory(lexbor)
 
-      - name: Clone SDL2 source if missing
-        if: steps.cache-sdl2-src.outputs.cache-hit != 'true'
-        run: git clone -b SDL2 https://github.com/libsdl-org/SDL.git sdl2-source
+add_executable(TactileBrowser Source/main.c)
 
-      - name: Build and install SDL2 for x86_64
-        if: steps.cache-sdl2-builds.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p $SDL2_BUILD_DIR_X86
-          cd $SDL2_BUILD_DIR_X86
-          cmake $SDL2_SRC_DIR \
-            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=$SDL2_BUILD_DIR_X86/install
-          make
-          make install
+target_include_directories(TactileBrowser PRIVATE
+    ${CURL_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/lvgl
+    ${CMAKE_SOURCE_DIR}/lvgl/src
+    ${CMAKE_SOURCE_DIR}/lvgl/src/drivers
+    ${CMAKE_SOURCE_DIR}/lvgl/src/drivers/sdl
+    ${CMAKE_SOURCE_DIR}/lexbor/include
+    ${SDL2_INCLUDE_DIRS}
+)
 
-      - name: Build and install SDL2 for arm64
-        if: steps.cache-sdl2-builds.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p $SDL2_BUILD_DIR_ARM
-          cd $SDL2_BUILD_DIR_ARM
-          cmake $SDL2_SRC_DIR \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=$SDL2_BUILD_DIR_ARM/install
-          make
-          make install
+target_link_libraries(TactileBrowser
+    lvgl
+    lexbor_static
+    ${SDL2_LIBRARIES}
+    ${CURL_LIBRARIES}
+)
 
-      # Verify SDL2 dylibs exist before creating universal binary
-      - name: Verify SDL2 builds exist
-        run: |
-          echo "Checking for SDL2 dylibs..."
-          if [ -f "$SDL2_BUILD_DIR_X86/install/lib/libSDL2-2.0.0.dylib" ]; then
-            echo "✓ x86_64 SDL2 dylib found"
-            ls -la "$SDL2_BUILD_DIR_X86/install/lib/"
-          elif [ -f "$SDL2_BUILD_DIR_X86/install/lib/libSDL2.dylib" ]; then
-            echo "✓ x86_64 SDL2 dylib found (generic name)"
-            ls -la "$SDL2_BUILD_DIR_X86/install/lib/"
-          else
-            echo "✗ x86_64 SDL2 dylib NOT found"
-            echo "Contents of x86_64 build directory:"
-            find "$SDL2_BUILD_DIR_X86" -name "*.dylib" 2>/dev/null || echo "No dylibs found"
-          fi
-          
-          if [ -f "$SDL2_BUILD_DIR_ARM/install/lib/libSDL2-2.0.0.dylib" ]; then
-            echo "✓ arm64 SDL2 dylib found"
-            ls -la "$SDL2_BUILD_DIR_ARM/install/lib/"
-          elif [ -f "$SDL2_BUILD_DIR_ARM/install/lib/libSDL2.dylib" ]; then
-            echo "✓ arm64 SDL2 dylib found (generic name)"
-            ls -la "$SDL2_BUILD_DIR_ARM/install/lib/"
-          else
-            echo "✗ arm64 SDL2 dylib NOT found"
-            echo "Contents of arm64 build directory:"
-            find "$SDL2_BUILD_DIR_ARM" -name "*.dylib" 2>/dev/null || echo "No dylibs found"
-          fi
+if(WIN32)
+    target_link_libraries(TactileBrowser SDL2main)
+elseif(UNIX AND NOT APPLE)
+    target_link_libraries(TactileBrowser m pthread dl)
+elseif(APPLE)
+    target_link_libraries(TactileBrowser 
+        "-framework Cocoa"
+        "-framework IOKit"
+        "-framework ForceFeedback"
+        "-framework Carbon"
+        "-framework CoreAudio"
+        "-framework AudioToolbox"
+        "-framework AVFoundation"
+        "-framework CoreVideo"
+        "-framework CoreGraphics"
+        "-framework OpenGL"
+    )
+    set_target_properties(TactileBrowser PROPERTIES
+        MACOSX_DEPLOYMENT_TARGET "10.15"
+    )
+endif()
 
-      - name: Create universal SDL2 dylib and setup headers
-        run: |
-          mkdir -p $SDL2_UNIVERSAL_DIR/lib
-          mkdir -p $SDL2_UNIVERSAL_DIR/include/SDL2
-          
-          # Determine the actual SDL2 dylib filenames
-          SDL2_X86_DYLIB=""
-          SDL2_ARM_DYLIB=""
-          
-          # Check for different possible SDL2 dylib names
-          if [ -f "$SDL2_BUILD_DIR_X86/install/lib/libSDL2-2.0.0.dylib" ]; then
-            SDL2_X86_DYLIB="$SDL2_BUILD_DIR_X86/install/lib/libSDL2-2.0.0.dylib"
-          elif [ -f "$SDL2_BUILD_DIR_X86/install/lib/libSDL2.dylib" ]; then
-            SDL2_X86_DYLIB="$SDL2_BUILD_DIR_X86/install/lib/libSDL2.dylib"
-          elif [ -f "$SDL2_BUILD_DIR_X86/libSDL2.dylib" ]; then
-            SDL2_X86_DYLIB="$SDL2_BUILD_DIR_X86/libSDL2.dylib"
-          fi
-          
-          if [ -f "$SDL2_BUILD_DIR_ARM/install/lib/libSDL2-2.0.0.dylib" ]; then
-            SDL2_ARM_DYLIB="$SDL2_BUILD_DIR_ARM/install/lib/libSDL2-2.0.0.dylib"
-          elif [ -f "$SDL2_BUILD_DIR_ARM/install/lib/libSDL2.dylib" ]; then
-            SDL2_ARM_DYLIB="$SDL2_BUILD_DIR_ARM/install/lib/libSDL2.dylib"
-          elif [ -f "$SDL2_BUILD_DIR_ARM/libSDL2.dylib" ]; then
-            SDL2_ARM_DYLIB="$SDL2_BUILD_DIR_ARM/libSDL2.dylib"
-          fi
-          
-          # Check if both dylibs were found
-          if [ -z "$SDL2_X86_DYLIB" ] || [ -z "$SDL2_ARM_DYLIB" ]; then
-            echo "Error: One or both SDL2 dylibs are missing!"
-            echo "x86_64 dylib: $SDL2_X86_DYLIB"
-            echo "arm64 dylib: $SDL2_ARM_DYLIB"
-            exit 1
-          fi
-          
-          echo "Using x86_64 dylib: $SDL2_X86_DYLIB"
-          echo "Using arm64 dylib: $SDL2_ARM_DYLIB"
-          
-          lipo -create \
-            "$SDL2_X86_DYLIB" \
-            "$SDL2_ARM_DYLIB" \
-            -output $SDL2_UNIVERSAL_DIR/lib/libSDL2.dylib
-          
-          echo "Universal SDL2 dylib created at $SDL2_UNIVERSAL_DIR/lib/libSDL2.dylib"
-          
-          # Create additional symlinks for compatibility
-          cd $SDL2_UNIVERSAL_DIR/lib
-          ln -sf libSDL2.dylib libSDL2-2.0.0.dylib
-          ln -sf libSDL2.dylib libSDL2-2.0.dylib
-          
-          # Copy SDL2 headers to both expected locations
-          # Copy to SDL2/ subdirectory for LVGL
-          cp -r $SDL2_SRC_DIR/include/* $SDL2_UNIVERSAL_DIR/include/SDL2/
-          # Also copy to root include for direct access
-          cp -r $SDL2_SRC_DIR/include/* $SDL2_UNIVERSAL_DIR/include/
-          
-          echo "SDL2 headers copied to both $SDL2_UNIVERSAL_DIR/include/ and $SDL2_UNIVERSAL_DIR/include/SDL2/"
+# macOS Bundle
+if(APPLE)
+    set_target_properties(TactileBrowser PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.nellowtcs.tactilebrowser"
+        MACOSX_BUNDLE_BUNDLE_NAME "Tactile Browser"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1.0"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0"
+        MACOSX_BUNDLE_INFO_STRING "Tactile Browser - HTML parsing with LVGL"
+    )
+endif()
 
-      - name: Cache CMake build files
-        uses: actions/cache@v3
-        id: cmake-cache
-        with:
-          path: desktop-src/CMakeFiles
-          key: cmake-build-universal-${{ env.CACHE_KEY_SUFFIX }}
-          restore-keys: cmake-build-universal-
-
-      - name: Debug directory structure
-        working-directory: desktop-src
-        run: |
-          echo "Current directory: $(pwd)"
-          echo "Contents of desktop-src:"
-          ls -la
-          echo "Looking for CMakeLists.txt files:"
-          find . -name "CMakeLists.txt" -exec echo "Found: {}" \; -exec head -3 {} \;
-
-      - name: Build with CMake and Make (universal)
-        working-directory: desktop-src
-        run: |
-          cmake . -DCMAKE_BUILD_TYPE=Debug \
-                  -DSDL2_LIBRARY=$SDL2_UNIVERSAL_DIR/lib/libSDL2.dylib \
-                  -DSDL2_INCLUDE_DIR=$SDL2_UNIVERSAL_DIR/include
-          make
-
-      - name: Bundle SDL2 dylib with app and fix paths
-        working-directory: desktop-src
-        run: |
-          # Create Frameworks directory in the app bundle
-          mkdir -p main/TactileBrowser.app/Contents/Frameworks
-          
-          # Copy SDL2 dylib to the app bundle
-          cp $SDL2_UNIVERSAL_DIR/lib/libSDL2.dylib main/TactileBrowser.app/Contents/Frameworks/
-          
-          # Also create the versioned dylib that the app expects
-          cd main/TactileBrowser.app/Contents/Frameworks/
-          ln -sf libSDL2.dylib libSDL2-2.0.0.dylib
-          
-          # Fix the dylib paths in the executable using install_name_tool
-          cd ../MacOS
-          install_name_tool -change @rpath/libSDL2-2.0.0.dylib @executable_path/../Frameworks/libSDL2-2.0.0.dylib TactileBrowser
-          
-          # Verify the changes
-          echo "Checking dylib dependencies:"
-          otool -L TactileBrowser
-
-      - name: Archive macOS app bundle (universal)
-        uses: actions/upload-artifact@v4
-        with:
-          name: TactileBrowser-macOS-universal
-          path: desktop-src/main/TactileBrowser.app
-          compression-level: 6
-
-  espidf-build:
-    name: Build ESP-IDF apps
-    runs-on: ubuntu-latest
-    env:
-      IDF_VERSION: v5.4
-      PIP_CACHE_DIR: ~/.cache/pip
-    steps:
-      - name: Checkout repository with submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Cache ESP-IDF SDK
-        id: cache-esp-idf-sdk
-        uses: actions/cache@v3
-        with:
-          path: esp-idf
-          key: esp-idf-${{ env.IDF_VERSION }}-${{ runner.os }}-v1
-          restore-keys: esp-idf-
-
-      - name: Cache pip packages
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-v1
-          restore-keys: pip-
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-setuptools cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
-
-      - name: Download and install ESP-IDF if missing
-        run: |
-          if [ ! -f "esp-idf/install.sh" ]; then
-            wget -q https://github.com/espressif/esp-idf/releases/download/v${{ env.IDF_VERSION }}/esp-idf-v${{ env.IDF_VERSION }}.zip -O esp-idf.zip
-            unzip -q esp-idf.zip
-            mv esp-idf-v${{ env.IDF_VERSION }} esp-idf
-          fi
-          python3 -m pip install --upgrade pip setuptools
-          python3 esp-idf/tools/idf_tools.py install-python-env
-          python3 esp-idf/tools/idf_tools.py install
-
-      - name: Setup ESP-IDF environment variables
-        run: |
-          echo "IDF_PATH=$PWD/esp-idf" >> $GITHUB_ENV
-          echo "$PWD/esp-idf/tools" >> $GITHUB_PATH
-
-      - name: Build ESP32 firmware with TactilityTool
-        working-directory: src
-        run: |
-          . ../esp-idf/export.sh
-          python3 tactility.py build all
-
-      - name: Upload ESP32 ELF artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: TactileBrowser-esp32-elf
-          path: src/build-esp32/TactileBrowser.app.elf
-
-      - name: Upload ESP32S3 ELF artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: TactileBrowser-esp32s3-elf
-          path: src/build-esp32s3/TactileBrowser.app.elf
+message(STATUS "SDL2 Libraries: ${SDL2_LIBRARIES}")
+message(STATUS "SDL2 Include Dirs: ${SDL2_INCLUDE_DIRS}")
+message(STATUS "CURL Libraries: ${CURL_LIBRARIES}")
+message(STATUS "CURL Include Dirs: ${CURL_INCLUDE_DIRS}")
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
