@@ -100,7 +100,7 @@ jobs:
           unzip esp-idf.zip
           mv esp-idf-v5.4 esp-idf
           python3 -m pip install --upgrade pip setuptools
-          python3 -m pip install -r esp-idf/requirements.txt
+          python3 -m pip install -r esp-idf/tools/requirements/requirements.core.txt
 
       - name: Setup ESP-IDF environment variables
         run: |
