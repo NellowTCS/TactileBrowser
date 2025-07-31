@@ -72,23 +72,50 @@ jobs:
           make
           make install
 
-      - name: Cache SDL2 builds again
-        if: steps.cache-sdl2-builds.outputs.cache-hit != 'true'
-        uses: actions/cache@v3
-        with:
-          path: |
-            sdl2-build-x86_64
-            sdl2-build-arm64
-          key: sdl2-builds-${{ env.CACHE_KEY_SUFFIX }}
+      # Verify SDL2 dylibs exist before creating universal binary
+      - name: Verify SDL2 builds exist
+        run: |
+          echo "Checking for SDL2 dylibs..."
+          if [ -f "$SDL2_BUILD_DIR_X86/install/lib/libSDL2-2.0.0.dylib" ]; then
+            echo "✓ x86_64 dylib found"
+            ls -la "$SDL2_BUILD_DIR_X86/install/lib/"
+          else
+            echo "✗ x86_64 dylib NOT found"
+            echo "Contents of x86_64 build directory:"
+            find "$SDL2_BUILD_DIR_X86" -name "*.dylib" 2>/dev/null || echo "No dylibs found"
+          fi
+          
+          if [ -f "$SDL2_BUILD_DIR_ARM/install/lib/libSDL2-2.0.0.dylib" ]; then
+            echo "✓ arm64 dylib found"
+            ls -la "$SDL2_BUILD_DIR_ARM/install/lib/"
+          else
+            echo "✗ arm64 dylib NOT found"
+            echo "Contents of arm64 build directory:"
+            find "$SDL2_BUILD_DIR_ARM" -name "*.dylib" 2>/dev/null || echo "No dylibs found"
+          fi
 
       - name: Create universal SDL2 dylib
         run: |
           mkdir -p $SDL2_UNIVERSAL_DIR/lib
+          
+          # Check if both dylibs exist
+          if [ ! -f "$SDL2_BUILD_DIR_X86/install/lib/libSDL2-2.0.0.dylib" ] || [ ! -f "$SDL2_BUILD_DIR_ARM/install/lib/libSDL2-2.0.0.dylib" ]; then
+            echo "Error: One or both SDL2 dylibs are missing!"
+            echo "x86_64 dylib exists: $([ -f "$SDL2_BUILD_DIR_X86/install/lib/libSDL2-2.0.0.dylib" ] && echo "YES" || echo "NO")"
+            echo "arm64 dylib exists: $([ -f "$SDL2_BUILD_DIR_ARM/install/lib/libSDL2-2.0.0.dylib" ] && echo "YES" || echo "NO")"
+            exit 1
+          fi
+          
           lipo -create \
             $SDL2_BUILD_DIR_X86/install/lib/libSDL2-2.0.0.dylib \
             $SDL2_BUILD_DIR_ARM/install/lib/libSDL2-2.0.0.dylib \
             -output $SDL2_UNIVERSAL_DIR/lib/libSDL2-2.0.0.dylib
           echo "Universal SDL2 dylib created at $SDL2_UNIVERSAL_DIR/lib/libSDL2-2.0.0.dylib"
+          
+          # Create symlinks for easier linking
+          cd $SDL2_UNIVERSAL_DIR/lib
+          ln -sf libSDL2-2.0.0.dylib libSDL2.dylib
+          ln -sf libSDL2-2.0.0.dylib libSDL2-2.0.dylib
 
       - name: Cache CMake build files
         uses: actions/cache@v3
