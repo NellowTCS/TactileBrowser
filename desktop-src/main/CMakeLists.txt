@@ -35,35 +35,33 @@ endif()
 # libcurl
 find_package(CURL REQUIRED)
 
-# Check subdirs - use main/ prefix since that's where they are
+# Check subdirs
 if(NOT EXISTS ${CMAKE_SOURCE_DIR}/main/lvgl/CMakeLists.txt)
-    message(FATAL_ERROR "LVGL subdirectory not found at ${CMAKE_SOURCE_DIR}/main/lvgl/")
+    message(FATAL_ERROR "LVGL subdirectory not found.")
 endif()
 if(NOT EXISTS ${CMAKE_SOURCE_DIR}/main/lexbor/CMakeLists.txt)
-    message(FATAL_ERROR "Lexbor subdirectory not found at ${CMAKE_SOURCE_DIR}/main/lexbor/")
+    message(FATAL_ERROR "Lexbor subdirectory not found.")
 endif()
 
 # LVGL options
 set(LV_USE_SDL ON CACHE BOOL "Use SDL2 driver for LVGL")
 set(LV_USE_DRAW_SDL ON CACHE BOOL "Use SDL2 for drawing")
 
-# Add subdirectories with main/ prefix
-add_subdirectory(main/lvgl EXCLUDE_FROM_ALL)
+add_subdirectory(lvgl EXCLUDE_FROM_ALL)
 target_include_directories(lvgl PUBLIC ${SDL2_INCLUDE_DIRS})
 target_link_libraries(lvgl PUBLIC ${SDL2_LIBRARIES})
 
-add_subdirectory(main/lexbor)
+add_subdirectory(lexbor)
 
-# Main executable - use correct source path
-add_executable(TactileBrowser main/Source/main.c)
+add_executable(TactileBrowser Source/main.c)
 
 target_include_directories(TactileBrowser PRIVATE
     ${CURL_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/main/lvgl
-    ${CMAKE_SOURCE_DIR}/main/lvgl/src
-    ${CMAKE_SOURCE_DIR}/main/lvgl/src/drivers
-    ${CMAKE_SOURCE_DIR}/main/lvgl/src/drivers/sdl
-    ${CMAKE_SOURCE_DIR}/main/lexbor/include
+    ${CMAKE_SOURCE_DIR}/lvgl
+    ${CMAKE_SOURCE_DIR}/lvgl/src
+    ${CMAKE_SOURCE_DIR}/lvgl/src/drivers
+    ${CMAKE_SOURCE_DIR}/lvgl/src/drivers/sdl
+    ${CMAKE_SOURCE_DIR}/lexbor/include
     ${SDL2_INCLUDE_DIRS}
 )
 
