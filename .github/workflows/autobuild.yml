@@ -100,9 +100,10 @@ jobs:
             find "$SDL2_BUILD_DIR_ARM" -name "*.dylib" 2>/dev/null || echo "No dylibs found"
           fi
 
-      - name: Create universal SDL2 dylib
+      - name: Create universal SDL2 dylib and setup headers
         run: |
           mkdir -p $SDL2_UNIVERSAL_DIR/lib
+          mkdir -p $SDL2_UNIVERSAL_DIR/include/SDL2
           
           # Determine the actual SDL2 dylib filenames
           SDL2_X86_DYLIB=""
@@ -147,6 +148,14 @@ jobs:
           cd $SDL2_UNIVERSAL_DIR/lib
           ln -sf libSDL2.dylib libSDL2-2.0.0.dylib
           ln -sf libSDL2.dylib libSDL2-2.0.dylib
+          
+          # Copy SDL2 headers to both expected locations
+          # Copy to SDL2/ subdirectory for LVGL
+          cp -r $SDL2_SRC_DIR/include/* $SDL2_UNIVERSAL_DIR/include/SDL2/
+          # Also copy to root include for direct access
+          cp -r $SDL2_SRC_DIR/include/* $SDL2_UNIVERSAL_DIR/include/
+          
+          echo "SDL2 headers copied to both $SDL2_UNIVERSAL_DIR/include/ and $SDL2_UNIVERSAL_DIR/include/SDL2/"
 
       - name: Cache CMake build files
         uses: actions/cache@v3
@@ -161,7 +170,7 @@ jobs:
         run: |
           cmake . -DCMAKE_BUILD_TYPE=Debug \
                   -DSDL2_LIBRARY=$SDL2_UNIVERSAL_DIR/lib/libSDL2.dylib \
-                  -DSDL2_INCLUDE_DIR=$SDL2_SRC_DIR/include
+                  -DSDL2_INCLUDE_DIR=$SDL2_UNIVERSAL_DIR/include
           make
 
       - name: Archive macOS app bundle (universal)
