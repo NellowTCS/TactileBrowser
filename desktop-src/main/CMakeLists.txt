@@ -5,63 +5,56 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wno-unused-parameter")
 set(CMAKE_BUILD_TYPE Debug)
 
-# ---------------- SDL2 Discovery ----------------
-find_package(SDL2)
-
-if(NOT SDL2_FOUND)
-    if(APPLE)
-        find_library(SDL2_LIBRARY SDL2)
-        find_path(SDL2_INCLUDE_DIR SDL2/SDL.h PATH_SUFFIXES SDL2)
-        if(SDL2_LIBRARY AND SDL2_INCLUDE_DIR)
-            set(SDL2_LIBRARIES ${SDL2_LIBRARY})
-            get_filename_component(SDL2_INCLUDE_BASE "${SDL2_INCLUDE_DIR}" DIRECTORY)
-            set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_BASE})
-            set(SDL2_FOUND TRUE)
+# Allow user override of SDL2 paths (passed via -D)
+if(NOT DEFINED SDL2_INCLUDE_DIR OR NOT DEFINED SDL2_LIBRARY)
+    find_package(SDL2)
+    if(NOT SDL2_FOUND)
+        if(APPLE)
+            find_library(SDL2_LIBRARY SDL2)
+            find_path(SDL2_INCLUDE_DIR SDL2/SDL.h PATH_SUFFIXES SDL2)
+            if(SDL2_LIBRARY AND SDL2_INCLUDE_DIR)
+                set(SDL2_LIBRARIES ${SDL2_LIBRARY})
+                get_filename_component(SDL2_INCLUDE_BASE "${SDL2_INCLUDE_DIR}" DIRECTORY)
+                set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_BASE})
+                set(SDL2_FOUND TRUE)
+            else()
+                message(FATAL_ERROR "SDL2 not found. Please install SDL2 or specify SDL2_INCLUDE_DIR and SDL2_LIBRARY.")
+            endif()
         else()
-            message(FATAL_ERROR "SDL2 not found. Please install SDL2 via Homebrew or provide paths manually.")
+            message(FATAL_ERROR "SDL2 not found and no fallback available on this platform.")
         endif()
     else()
-        message(FATAL_ERROR "SDL2 not found and no fallback available on this platform.")
+        set(SDL2_LIBRARIES SDL2::SDL2)
+        set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
     endif()
+else()
+    set(SDL2_LIBRARIES ${SDL2_LIBRARY})
+    set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
 endif()
 
-# ---------------- libcurl Discovery ----------------
+# libcurl
 find_package(CURL REQUIRED)
 
-# ---------------- Subdirectory Checks ----------------
+# Check subdirs
 if(NOT EXISTS ${CMAKE_SOURCE_DIR}/main/lvgl/CMakeLists.txt)
     message(FATAL_ERROR "LVGL subdirectory not found.")
 endif()
-
 if(NOT EXISTS ${CMAKE_SOURCE_DIR}/main/lexbor/CMakeLists.txt)
     message(FATAL_ERROR "Lexbor subdirectory not found.")
 endif()
 
-# ---------------- LVGL Config ----------------
+# LVGL options
 set(LV_USE_SDL ON CACHE BOOL "Use SDL2 driver for LVGL")
 set(LV_USE_DRAW_SDL ON CACHE BOOL "Use SDL2 for drawing")
 
-# ---------------- Subdirs ----------------
 add_subdirectory(lvgl EXCLUDE_FROM_ALL)
+target_include_directories(lvgl PUBLIC ${SDL2_INCLUDE_DIRS})
+target_link_libraries(lvgl PUBLIC ${SDL2_LIBRARIES})
 
-target_include_directories(lvgl PUBLIC
-    ${SDL2_INCLUDE_DIRS}
-)
-if(TARGET SDL2::SDL2 AND TARGET lvgl)
-    target_link_libraries(lvgl PUBLIC SDL2::SDL2)
-endif()
 add_subdirectory(lexbor)
 
-# ---------------- Executable ----------------
 add_executable(TactileBrowser Source/main.c)
 
-set_target_properties(TactileBrowser PROPERTIES
-    C_STANDARD 99
-    C_STANDARD_REQUIRED ON
-)
-
-
-# ---------------- Include Paths ----------------
 target_include_directories(TactileBrowser PRIVATE
     ${CURL_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/lvgl
@@ -69,9 +62,9 @@ target_include_directories(TactileBrowser PRIVATE
     ${CMAKE_SOURCE_DIR}/lvgl/src/drivers
     ${CMAKE_SOURCE_DIR}/lvgl/src/drivers/sdl
     ${CMAKE_SOURCE_DIR}/lexbor/include
+    ${SDL2_INCLUDE_DIRS}
 )
 
-# ---------------- Linking ----------------
 target_link_libraries(TactileBrowser
     lvgl
     lexbor_static
@@ -101,14 +94,7 @@ elseif(APPLE)
     )
 endif()
 
-# ---------------- Diagnostics ----------------
-message(STATUS "SDL2 Libraries: ${SDL2_LIBRARIES}")
-message(STATUS "SDL2 Include Dirs: ${SDL2_INCLUDE_DIRS}")
-message(STATUS "CURL Libraries: ${CURL_LIBRARIES}")
-message(STATUS "CURL Include Dirs: ${CURL_INCLUDE_DIRS}")
-message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
-
-# ---------------- macOS Bundle ----------------
+# macOS Bundle
 if(APPLE)
     set_target_properties(TactileBrowser PROPERTIES
         MACOSX_BUNDLE TRUE
@@ -119,3 +105,9 @@ if(APPLE)
         MACOSX_BUNDLE_INFO_STRING "Tactile Browser - HTML parsing with LVGL"
     )
 endif()
+
+message(STATUS "SDL2 Libraries: ${SDL2_LIBRARIES}")
+message(STATUS "SDL2 Include Dirs: ${SDL2_INCLUDE_DIRS}")
+message(STATUS "CURL Libraries: ${CURL_LIBRARIES}")
+message(STATUS "CURL Include Dirs: ${CURL_INCLUDE_DIRS}")
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
