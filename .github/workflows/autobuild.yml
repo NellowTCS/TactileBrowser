@@ -44,7 +44,6 @@ jobs:
             arch -x86_64 /usr/local/bin/brew list sdl2 || arch -x86_64 /usr/local/bin/brew install sdl2
           fi
 
-
       - name: Set architecture environment variable for CMake
         run: echo "CMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}" >> $GITHUB_ENV
 
@@ -75,6 +74,7 @@ jobs:
           submodules: recursive
 
       - name: Cache ESP-IDF SDK
+        id: cache-esp-idf-sdk
         uses: actions/cache@v3
         with:
           path: esp-idf
@@ -88,30 +88,31 @@ jobs:
           key: pip-${{ runner.os }}-v1
           restore-keys: pip-
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-setuptools cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
 
-      - name: Install ESP-IDF v5.4 if cache miss
-        if: steps.cache-esp-idf-sdk.outputs.cache-hit != 'true'
+      - name: Download and install ESP-IDF if missing
         run: |
-          wget -q https://github.com/espressif/esp-idf/releases/download/v5.4/esp-idf-v5.4.zip -O esp-idf.zip
-          unzip -q esp-idf.zip
-          mv esp-idf-v5.4 esp-idf
+          if [ ! -f "esp-idf/install.sh" ]; then
+            wget -q https://github.com/espressif/esp-idf/releases/download/v${{ env.IDF_VERSION }}/esp-idf-v${{ env.IDF_VERSION }}.zip -O esp-idf.zip
+            unzip -q esp-idf.zip
+            mv esp-idf-v${{ env.IDF_VERSION }} esp-idf
+          fi
           python3 -m pip install --upgrade pip setuptools
           python3 esp-idf/tools/idf_tools.py install-python-env
 
       - name: Setup ESP-IDF environment variables
         run: |
           echo "IDF_PATH=$PWD/esp-idf" >> $GITHUB_ENV
-          echo "PATH=$PATH:$PWD/esp-idf/tools" >> $GITHUB_ENV
+          echo "$PWD/esp-idf/tools" >> $GITHUB_PATH
 
-      - name: Run TactilityTool build (ESP-IDF)
+      - name: Build ESP32 firmware with TactilityTool
         working-directory: src
         run: |
-          source ~/.espressif/python_env/idf5.4_py3.12_env/bin/activate
-          python3 ../tactility.py build all
+          . ../esp-idf/export.sh
+          python3 tactility.py build all
 
       - name: Upload ESP32 ELF artifact
         uses: actions/upload-artifact@v4
