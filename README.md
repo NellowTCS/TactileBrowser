@@ -9,3 +9,6 @@ Use this for ESP-IDF
 ```
 -->
 This will use Elk for the desktop version and Duktape for the esp32 version for JS.
+
+## Building
+You have to build SDL2 for Apple Silicon and Intel from source in order to build the Mac version. A premade binary will be added to the main build soon.
