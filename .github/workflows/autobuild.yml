@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  desktop-build-arm64:
-    name: Build Desktop App (macOS arm64)
+  desktop-build-universal:
+    name: Build Desktop Universal Binary (macOS)
     runs-on: macos-latest
     steps:
       - name: Checkout repository with submodules
@@ -25,72 +25,25 @@ jobs:
         id: cmake-cache
         with:
           path: desktop-src/CMakeFiles
-          key: cmake-build-arm64-${{ env.CACHE_KEY_SUFFIX }}
-          restore-keys: cmake-build-arm64-
+          key: cmake-build-universal-${{ env.CACHE_KEY_SUFFIX }}
+          restore-keys: cmake-build-universal-
 
-      - name: Install SDL2 for arm64
+      - name: Install SDL2 (universal, single install)
         run: |
-          if ! /opt/homebrew/bin/brew list sdl2 &>/dev/null; then
-            /opt/homebrew/bin/brew install sdl2
+          if ! brew list sdl2 &>/dev/null; then
+            brew install sdl2
           fi
 
-      - name: Set architecture environment variable for CMake
-        run: echo "CMAKE_OSX_ARCHITECTURES=arm64" >> $GITHUB_ENV
-
-      - name: Build with CMake and Make (arm64)
+      - name: Build with CMake and Make (universal)
         working-directory: desktop-src
         run: |
-          cmake . -DCMAKE_BUILD_TYPE=Debug -DCMAKE_OSX_ARCHITECTURES=arm64
+          cmake . -DCMAKE_BUILD_TYPE=Debug
           make
 
-      - name: Archive macOS app bundle (arm64)
+      - name: Archive macOS app bundle (universal)
         uses: actions/upload-artifact@v4
         with:
-          name: TactileBrowser-app-arm64
-          path: desktop-src/main/TactileBrowser.app
-
-  desktop-build-x86_64:
-    name: Build Desktop App (macOS x86_64)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout repository with submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Calculate cache key suffix
-        id: cache-key
-        run: echo "CACHE_KEY_SUFFIX=$(git hash-object desktop-src/CMakeLists.txt)" >> $GITHUB_ENV
-
-      - name: Cache CMake build files
-        uses: actions/cache@v3
-        id: cmake-cache
-        with:
-          path: desktop-src/CMakeFiles
-          key: cmake-build-x86_64-${{ env.CACHE_KEY_SUFFIX }}
-          restore-keys: cmake-build-x86_64-
-
-      - name: Install SDL2 for x86_64 via Rosetta
-        run: |
-          if [ -x /usr/local/bin/brew ]; then
-            arch -x86_64 /usr/local/bin/brew list sdl2 || arch -x86_64 /usr/local/bin/brew install sdl2
-          else
-            echo "Intel brew not found, skipping SDL2 install for x86_64"
-          fi
-
-      - name: Set architecture environment variable for CMake
-        run: echo "CMAKE_OSX_ARCHITECTURES=x86_64" >> $GITHUB_ENV
-
-      - name: Build with CMake and Make (x86_64)
-        working-directory: desktop-src
-        run: |
-          cmake . -DCMAKE_BUILD_TYPE=Debug -DCMAKE_OSX_ARCHITECTURES=x86_64
-          make
-
-      - name: Archive macOS app bundle (x86_64)
-        uses: actions/upload-artifact@v4
-        with:
-          name: TactileBrowser-app-x86_64
+          name: TactileBrowser-app-universal
           path: desktop-src/main/TactileBrowser.app
 
   espidf-build:
