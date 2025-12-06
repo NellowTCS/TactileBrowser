@@ -56,10 +56,33 @@
     });
 
     // UI event binding (keeps existing global loadUrl function behavior)
+    function setupAddressBarInteractions() {
+      const addressBar = document.getElementById('address-bar');
+      if (!addressBar) return;
+
+      const swallow = (event) => {
+        // Allow the browser to handle default text input but prevent SDL/Emscripten from hijacking the event.
+        event.stopPropagation();
+      };
+
+      ['keydown', 'keypress', 'keyup'].forEach((type) => {
+        addressBar.addEventListener(type, swallow, true);
+      });
+
+      addressBar.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          window.loadUrl();
+        }
+      });
+    }
+
     window.loadUrl = function() {
       const url = document.getElementById('address-bar').value;
       window.TactileBrowserWasm.loadUrl(url);
     };
+
+    setupAddressBarInteractions();
   </script>
 </body>
 </html>

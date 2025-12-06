@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include "common_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,6 +22,9 @@ void css_parser_add_stylesheet(const char* css, size_t length);
 
 // Retrieve concatenated declarations for a selector (lowercase tag name)
 const char* css_parser_get_declarations(const char* selector, size_t length);
+
+// Parse inline style attribute and apply to widget
+void css_parser_parse_inline_style(const char* style, RenderContext* context, void* widget);
 
 #ifdef __cplusplus
 }

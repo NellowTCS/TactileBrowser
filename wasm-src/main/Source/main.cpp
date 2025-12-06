@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -22,8 +23,93 @@ static lv_obj_t* content_area = nullptr;
 static char current_url[512] = "https://example.com";
 static double last_frame_time_ms = 0.0;
 static std::unordered_map<lv_obj_t*, std::string> link_targets;
+struct LabelSelectionState {
+    uint32_t anchor = LV_LABEL_TEXT_SELECTION_OFF;
+    bool active = false;
+};
+static std::unordered_map<lv_obj_t*, LabelSelectionState> label_selection_states;
 
 extern "C" void load_url(const char* url);
+
+static bool label_index_from_event(lv_obj_t* label, lv_event_t* event, uint32_t* out_index) {
+    if (!label || !event || !out_index) return false;
+    lv_indev_t* indev = lv_event_get_indev(event);
+    if (!indev) return false;
+
+    if (lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER) {
+        return false;
+    }
+
+    lv_point_t global_point;
+    lv_indev_get_point(indev, &global_point);
+
+    lv_area_t coords;
+    lv_obj_get_coords(label, &coords);
+
+    lv_point_t local_point;
+    local_point.x = global_point.x - coords.x1;
+    local_point.y = global_point.y - coords.y1;
+
+    uint32_t index = lv_label_get_letter_on(label, &local_point, true);
+    if (index == LV_LABEL_TEXT_SELECTION_OFF) {
+        const char* text = lv_label_get_text(label);
+        index = text ? (uint32_t)strlen(text) : 0;
+    }
+
+    *out_index = index;
+    return true;
+}
+
+static bool label_has_active_selection(lv_obj_t* label) {
+    if (!label) return false;
+    uint32_t start = lv_label_get_text_selection_start(label);
+    uint32_t end = lv_label_get_text_selection_end(label);
+    if (start == LV_LABEL_TEXT_SELECTION_OFF || end == LV_LABEL_TEXT_SELECTION_OFF) {
+        return false;
+    }
+    return start != end;
+}
+
+static void label_selection_event_cb(lv_event_t* event) {
+    if (!event) return;
+    lv_obj_t* label = static_cast<lv_obj_t*>(lv_event_get_target(event));
+    if (!label) return;
+
+    lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_DELETE) {
+        label_selection_states.erase(label);
+        return;
+    }
+
+    if (code == LV_EVENT_PRESSED) {
+        uint32_t index = 0;
+        if (!label_index_from_event(label, event, &index)) return;
+        LabelSelectionState& state = label_selection_states[label];
+        state.anchor = index;
+        state.active = true;
+        lv_label_set_text_selection_start(label, index);
+        lv_label_set_text_selection_end(label, index);
+        return;
+    }
+
+    auto it = label_selection_states.find(label);
+    if (it == label_selection_states.end()) return;
+
+    if (code == LV_EVENT_PRESSING) {
+        if (!it->second.active) return;
+        uint32_t index = 0;
+        if (!label_index_from_event(label, event, &index)) return;
+        uint32_t start = std::min(it->second.anchor, index);
+        uint32_t end = std::max(it->second.anchor, index);
+        lv_label_set_text_selection_start(label, start);
+        lv_label_set_text_selection_end(label, end);
+        return;
+    }
+
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        it->second.active = false;
+    }
+}
 
 static void update_js_status(const char* message, const char* color_hex) {
     EM_ASM({
@@ -67,6 +153,8 @@ static void* lvgl_create_label(Renderer* renderer, const char* text, int x, int 
     lv_obj_set_width(label, lv_pct(100));
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_color(label, lv_color_hex(0xF0F6FC), 0);
+    lv_obj_add_flag(label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(label, label_selection_event_cb, LV_EVENT_ALL, nullptr);
     return label;
 }
 
@@ -131,6 +219,9 @@ static void link_event_handler(lv_event_t* event) {
     }
 
     if (code == LV_EVENT_CLICKED) {
+        if (label_has_active_selection(target)) {
+            return;
+        }
         auto it = link_targets.find(target);
         if (it != link_targets.end() && !it->second.empty()) {
             load_url(it->second.c_str());

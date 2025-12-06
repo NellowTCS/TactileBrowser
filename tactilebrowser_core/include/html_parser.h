@@ -42,9 +42,6 @@ bool html_parser_init(void);
 // Cleanup HTML parser
 void html_parser_cleanup(void);
 
-// Parse CSS inline style
-void parse_inline_style(const char* style, RenderContext* context, void* widget);
-
 // Determine element type from tag name
 ElementType get_element_type(const char* tag_name, size_t tag_len);
 

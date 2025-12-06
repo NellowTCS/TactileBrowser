@@ -5,15 +5,6 @@
 #include <ctype.h>
 #include <lexbor/dom/interfaces/node.h>
 
-// Color table for named colors
-const ColorEntry color_table[] = {
-    {"red", 0xFF0000}, {"green", 0x00FF00}, {"blue", 0x0000FF},
-    {"black", 0x000000}, {"white", 0xFFFFFF}, {"gray", 0x808080},
-    {"yellow", 0xFFFF00}, {"orange", 0xFFA500}, {"purple", 0x800080}
-};
-
-const size_t color_table_size = sizeof(color_table) / sizeof(color_table[0]);
-
 // Default HTML downloader (placeholder)
 static RenderResult default_download_html(const char* url, MemoryBuffer* buffer) {
     // This should be overridden by platform-specific implementation
@@ -178,91 +169,6 @@ bool html_parser_init(void) {
 // Cleanup HTML parser
 void html_parser_cleanup(void) {
     // Cleanup lexbor if needed
-}
-
-// Parse CSS inline style
-void parse_inline_style(const char* style, RenderContext* context, void* widget) {
-    if (!style || !context || !widget) return;
-
-    char* style_copy = safe_strdup(style);
-    if (!style_copy) return;
-
-    char* p = style_copy;
-    char* key_start, *val_start;
-
-    while (*p) {
-        // Skip whitespace
-        while (*p && isspace((unsigned char)*p)) p++;
-        if (!*p) break;
-
-        // Find key
-        key_start = p;
-        while (*p && *p != ':' && !isspace((unsigned char)*p)) p++;
-        if (*p != ':') continue;
-        *p++ = 0;
-
-        // Skip whitespace after colon
-        while (*p && isspace((unsigned char)*p)) p++;
-        val_start = p;
-
-        // Find value end
-        while (*p && *p != ';') p++;
-        if (*p == ';') *p++ = 0;
-
-        // Remove trailing whitespace from value
-        char* val_end = val_start + strlen(val_start) - 1;
-        while (val_end > val_start && isspace((unsigned char)*val_end)) *val_end-- = 0;
-
-        // Apply styles
-        if (strcmp(key_start, "color") == 0) {
-            uint32_t color = 0;
-            if (val_start[0] == '#') {
-                if (sscanf(val_start + 1, "%6x", &color) == 1) {
-                    if (context->renderer->interface->set_text_color) {
-                        context->renderer->interface->set_text_color(context->renderer, widget, color);
-                    }
-                }
-            } else {
-                // Named color
-                for (size_t i = 0; i < color_table_size; i++) {
-                    if (strcmp(val_start, color_table[i].name) == 0) {
-                        if (context->renderer->interface->set_text_color) {
-                            context->renderer->interface->set_text_color(context->renderer, widget, color_table[i].color);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-        else if (strcmp(key_start, "background-color") == 0) {
-            uint32_t color = 0;
-            if (val_start[0] == '#' && sscanf(val_start + 1, "%6x", &color) == 1) {
-                if (context->renderer->interface->set_bg_color) {
-                    context->renderer->interface->set_bg_color(context->renderer, widget, color);
-                    // Set opacity to cover
-                }
-            }
-        }
-        else if (strcmp(key_start, "text-align") == 0) {
-            if (strcmp(val_start, "center") == 0) {
-                if (context->renderer->interface->set_text_align) {
-                    context->renderer->interface->set_text_align(context->renderer, widget, 1); // Center
-                }
-            } else if (strcmp(val_start, "right") == 0) {
-                if (context->renderer->interface->set_text_align) {
-                    context->renderer->interface->set_text_align(context->renderer, widget, 2); // Right
-                }
-            }
-        }
-        else if (strcmp(key_start, "padding") == 0) {
-            // Padding handling could be added here
-        }
-        else if (strcmp(key_start, "margin") == 0) {
-            // Margin handling could be added here
-        }
-    }
-
-    free(style_copy);
 }
 
 // Determine element type from tag name

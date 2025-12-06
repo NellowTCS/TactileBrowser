@@ -272,19 +272,17 @@ static void dom_renderer_render_node(lxb_dom_node_t* node, RenderContext* contex
             apply_class_selectors(el, context, widget);
             apply_id_selector(el, context, widget);
 
-            // Apply inline styles
-            size_t style_len;
-            const char* style_attr = html_parser.get_element_attr(el, "style", &style_len);
+                // Apply inline styles
+                size_t style_len;
+                const char* style_attr = html_parser.get_element_attr(el, "style", &style_len);
 
-            if (style_attr && style_len > 0) {
-                char* style = safe_strndup(style_attr, style_len);
-                if (style) {
-                    dom_renderer.apply_styles(widget, context, style);
-                    free(style);
-                }
-            }
-
-            if (elem_type == ELEMENT_LINK && context->renderer->interface->register_link_handler) {
+                if (style_attr && style_len > 0) {
+                    char* style = safe_strndup(style_attr, style_len);
+                    if (style) {
+                        css_parser_parse_inline_style(style, context, widget);
+                        free(style);
+                    }
+                }            if (elem_type == ELEMENT_LINK && context->renderer->interface->register_link_handler) {
                 size_t href_len = 0;
                 const char* href_attr = html_parser.get_element_attr(el, "href", &href_len);
                 if (href_attr && href_len > 0) {
@@ -366,7 +364,7 @@ static void* dom_renderer_create_element_widget(ElementType type, RenderContext*
 }
 
 static void dom_renderer_apply_styles(void* widget, RenderContext* context, const char* style) {
-    parse_inline_style(style, context, widget);
+    css_parser_parse_inline_style(style, context, widget);
 }
 
 // Global DOM renderer instance

@@ -22,22 +22,108 @@
     }
   }
 
-  function buildProxyUrl(url) {
-    if (!/^https?:\/\//i.test(url)) return null;
-    return `https://r.jina.ai/${url}`;
+  const DEFAULT_PROXY_CHAIN = [
+    {
+      label: 'CORS Proxy',
+      template: 'https://corsproxy.io/?{{URL}}'
+    },
+    {
+      label: 'AllOrigins',
+      template: 'https://api.allorigins.win/raw?url={{URL}}'
+    }
+  ];
+
+  function getProxyConfigOverride() {
+    const globalObj = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null);
+    if (!globalObj) return null;
+    const chain = globalObj.TactileBrowserWasmProxyChain;
+    if (!chain || !Array.isArray(chain)) return null;
+    return chain;
   }
 
-  function shouldRetryWithProxy(err) {
-    if (!err) return false;
-    const msg = String(err && err.message ? err.message : '').toLowerCase();
-    return err.name === 'TypeError' || msg.includes('failed to fetch') || msg.includes('network error');
+  function normalizeProxyEntry(entry, index) {
+    if (!entry) return null;
+    if (typeof entry === 'string') {
+      return { template: entry, encode: true, label: `proxy-${index + 1}` };
+    }
+    if (typeof entry === 'function') {
+      return { builder: entry, label: entry.name || `proxy-${index + 1}` };
+    }
+    if (typeof entry === 'object') {
+      if (entry.template || entry.prefix || entry.builder) {
+        return {
+          template: entry.template || entry.prefix || null,
+          encode: entry.encode !== false,
+          label: entry.label || `proxy-${index + 1}`,
+          builder: entry.builder || null,
+          fetchOptions: entry.fetchOptions || null
+        };
+      }
+    }
+    return null;
   }
 
-  function fetchAndRenderInternal(targetUrl, displayUrl, options = {}) {
-    const useProxy = Boolean(options.useProxy);
-    const fetchOptions = { mode: targetUrl.startsWith('http') ? 'cors' : 'same-origin' };
+  function buildProxyTarget(entry, url) {
+    if (!entry) return null;
+    if (entry.builder) {
+      try {
+        return entry.builder(url);
+      } catch (err) {
+        console.warn('Custom proxy builder threw', err);
+        return null;
+      }
+    }
 
-    fetch(targetUrl, fetchOptions)
+    if (!entry.template) return null;
+    const encode = entry.encode !== false;
+    const tokenValue = encode ? encodeURIComponent(url) : url;
+    if (entry.template.includes('{{URL}}')) {
+      return entry.template.replace(/\{\{URL\}\}/g, tokenValue);
+    }
+    return `${entry.template}${tokenValue}`;
+  }
+
+  function buildFetchChain(displayUrl) {
+    const chain = [];
+    const directOptions = { mode: displayUrl.startsWith('http') ? 'cors' : 'same-origin' };
+    chain.push({
+      label: 'direct',
+      target: displayUrl,
+      options: directOptions
+    });
+
+    const override = getProxyConfigOverride();
+    const sources = override && override.length ? override : DEFAULT_PROXY_CHAIN;
+
+    sources.forEach((entry, idx) => {
+      const normalized = normalizeProxyEntry(entry, idx);
+      if (!normalized) return;
+      const target = buildProxyTarget(normalized, displayUrl);
+      if (!target) return;
+      chain.push({
+        label: normalized.label || `proxy-${idx + 1}`,
+        target,
+        options: Object.assign({ mode: 'cors' }, normalized.fetchOptions || {})
+      });
+    });
+
+    return chain;
+  }
+
+  function fetchViaChain(displayUrl, chain, index) {
+    if (index >= chain.length) {
+      setStatus('Fetch failed', '#FF6B6B');
+      const errMsg = 'Unable to fetch content';
+      try {
+        ModuleInstance.ccall('wasm_display_message', 'void', ['string', 'number'], [errMsg, 0xFF6B6B]);
+      } catch (_) {
+        /* ignore */
+      }
+      return;
+    }
+
+    const candidate = chain[index];
+    fetch(candidate.target, candidate.options)
       .then((resp) => {
         if (!resp.ok) {
           throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
@@ -48,18 +134,15 @@
         ModuleInstance.ccall('render_html_from_js', 'void', ['string', 'string'], [displayUrl, html]);
       })
       .catch((err) => {
-        if (!useProxy) {
-          const proxyUrl = buildProxyUrl(displayUrl);
-          if (proxyUrl && shouldRetryWithProxy(err)) {
-            console.warn('Direct fetch failed, retrying via proxy', err);
-            setStatus('Retrying via proxy...', '#999');
-            fetchAndRenderInternal(proxyUrl, displayUrl, { useProxy: true });
-            return;
-          }
+        console.warn(`Fetch attempt via ${candidate.label || 'candidate'} failed`, err);
+        if (index + 1 < chain.length) {
+          const nextLabel = chain[index + 1].label || 'proxy';
+          setStatus(`Retrying via ${nextLabel}...`, '#999');
+          fetchViaChain(displayUrl, chain, index + 1);
+          return;
         }
 
         setStatus('Fetch failed', '#FF6B6B');
-        console.error('Failed to fetch URL', err);
         try {
           const errMsg = err && err.message ? err.message : 'Unable to fetch content';
           ModuleInstance.ccall('wasm_display_message', 'void', ['string', 'number'], [errMsg, 0xFF6B6B]);
@@ -67,6 +150,11 @@
           /* ignore */
         }
       });
+  }
+
+  function fetchWithFallbacks(displayUrl) {
+    const chain = buildFetchChain(displayUrl);
+    fetchViaChain(displayUrl, chain, 0);
   }
 
   // Public API used by C/C++ via EM_ASM and by the UI
@@ -107,7 +195,7 @@
 
       const resolvedUrl = resolveUrl(input);
       setStatus('Loading...', '#999');
-      fetchAndRenderInternal(resolvedUrl, resolvedUrl);
+      fetchWithFallbacks(resolvedUrl);
     },
 
     loadUrl: function(url) {
