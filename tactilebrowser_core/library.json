@@ -22,6 +22,7 @@
       "+<*.cpp>",
       "+<../lexbor/source/lexbor/core/*.c>",
       "+<../lexbor/source/lexbor/css/*.c>",
+      "+<../lexbor/source/lexbor/css/syntax/*.c>",
       "+<../lexbor/source/lexbor/dom/*.c>",
       "+<../lexbor/source/lexbor/dom/interfaces/*.c>",
       "+<../lexbor/source/lexbor/encoding/*.c>",
