@@ -9,11 +9,19 @@
 #include <lv_sdl_mouse.h>
 #include <lv_sdl_mousewheel.h>
 #include <lv_sdl_window.h>
+#include <string>
+#include <unordered_map>
 
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 600
 #define MAX_TABS 10
 #define MAX_URL_LENGTH 512
+
+void load_url(const char *url, int tab_index);
+
+static std::unordered_map<lv_obj_t*, std::string> g_linkTargets;
+static void navigate_to_link(const char* url);
+static void lvgl_link_event_cb(lv_event_t *e);
 
 // LVGL Renderer implementation for tactilebrowser_core
 class LVGLRenderer {
@@ -26,6 +34,7 @@ public:
         interface.cleanup = lvgl_cleanup;
         interface.create_label = lvgl_create_label;
         interface.create_button = lvgl_create_button;
+        interface.register_link_handler = lvgl_register_link;
         interface.create_container = lvgl_create_container;
         interface.set_text_color = lvgl_set_text_color;
         interface.set_bg_color = lvgl_set_bg_color;
@@ -99,6 +108,17 @@ private:
     static int lvgl_get_height(Renderer* renderer, void* widget) {
         lv_obj_t* obj = (lv_obj_t*)widget;
         return lv_obj_get_height(obj);
+    }
+
+    static void lvgl_register_link(Renderer* renderer, void* widget, const char* url) {
+        if (!widget || !url || url[0] == '\0') return;
+
+        lv_obj_t* obj = (lv_obj_t*)widget;
+        g_linkTargets[obj] = url;
+        lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(obj, lvgl_link_event_cb, LV_EVENT_ALL, NULL);
+        lv_obj_set_style_text_color(obj, lv_color_hex(0x4EA1FF), 0);
+        lv_obj_set_style_text_decor(obj, LV_TEXT_DECOR_UNDERLINE, 0);
     }
 };
 
@@ -218,6 +238,28 @@ void load_url(const char *url, int tab_index) {
         lv_label_set_text(error_label, error_msg);
         lv_obj_center(error_label);
         lv_obj_set_style_text_color(error_label, lv_color_hex(0xFF6B6B), 0);
+    }
+}
+
+static void navigate_to_link(const char* url) {
+    if (!url || url[0] == '\0') return;
+    load_url(url, active_tab);
+}
+
+static void lvgl_link_event_cb(lv_event_t *e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t* target = lv_event_get_target(e);
+
+    if (code == LV_EVENT_DELETE) {
+        g_linkTargets.erase(target);
+        return;
+    }
+
+    if (code == LV_EVENT_CLICKED) {
+        auto it = g_linkTargets.find(target);
+        if (it != g_linkTargets.end()) {
+            navigate_to_link(it->second.c_str());
+        }
     }
 }
 

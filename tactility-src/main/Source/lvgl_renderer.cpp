@@ -129,6 +129,7 @@ LvglRenderer* lvgl_renderer_create(void) {
     renderer->base.cleanup = lvgl_renderer_cleanup;
     renderer->base.create_label = lvgl_renderer_create_label;
     renderer->base.create_button = lvgl_renderer_create_button;
+    renderer->base.register_link_handler = NULL;
     renderer->base.create_container = lvgl_renderer_create_container;
     renderer->base.set_text_color = lvgl_renderer_set_text_color;
     renderer->base.set_bg_color = lvgl_renderer_set_bg_color;

@@ -5,9 +5,26 @@ import os
 import sys
 import subprocess
 import shutil
+import platform
 from pathlib import Path
 
 from tui import TUI
+
+
+def get_shell():
+    """Get appropriate shell for current platform."""
+    if platform.system() == "Windows":
+        return "cmd.exe"
+    return "/bin/bash"
+
+
+def run_shell_command(cmd, env=None):
+    """Run a shell command cross-platform."""
+    shell = get_shell()
+    if shell == "cmd.exe":
+        return subprocess.run([shell, "/c", cmd], env=env, capture_output=True, text=True)
+    else:
+        return subprocess.run([shell, "-c", cmd], env=env, capture_output=True, text=True)
 
 
 def setup_esp_idf(workspace_root, tui):
@@ -54,10 +71,9 @@ def main():
     if idf_env_script.exists():
         tui.info("Loading ESP-IDF environment")
         # Source the environment and capture all variables
-        result = subprocess.run(
-            ["/bin/bash", "-c", f"source {idf_env_script} 2>/dev/null && env"],
-            capture_output=True,
-            text=True
+        result = run_shell_command(
+            f"source {idf_env_script} 2>/dev/null && env",
+            env=env
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():
@@ -78,20 +94,18 @@ def main():
         env["TACTILITY_SDK_PATH"] = str(tactility_dir / ".tactility")
         cmd = f"source {esp_idf_path / 'export.sh'} 2>/dev/null && python tactility.py build --local-sdk"
         tui.command(cmd)
-        result = subprocess.run(
-            ["/bin/bash", "-c", cmd],
-            cwd=tactility_dir,
-            env=env
-        )
+        cwd_backup = os.getcwd()
+        os.chdir(tactility_dir)
+        result = run_shell_command(cmd, env=env)
+        os.chdir(cwd_backup)
     else:
         tui.subsection("Building with default SDK")
         cmd = f"source {esp_idf_path / 'export.sh'} 2>/dev/null && python tactility.py build --verbose"
         tui.command(cmd)
-        result = subprocess.run(
-            ["/bin/bash", "-c", cmd],
-            cwd=tactility_dir,
-            env=env
-        )
+        cwd_backup = os.getcwd()
+        os.chdir(tactility_dir)
+        result = run_shell_command(cmd, env=env)
+        os.chdir(cwd_backup)
 
     if result.returncode != 0:
         tui.error("Build failed")

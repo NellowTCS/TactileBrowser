@@ -5,9 +5,26 @@ import os
 import sys
 import subprocess
 import shutil
+import platform
 from pathlib import Path
 
 from tui import TUI
+
+
+def get_shell():
+    """Get appropriate shell for current platform."""
+    if platform.system() == "Windows":
+        return "cmd.exe"
+    return "/bin/bash"
+
+
+def run_shell_command(cmd, env=None):
+    """Run a shell command cross-platform."""
+    shell = get_shell()
+    if shell == "cmd.exe":
+        return subprocess.run([shell, "/c", cmd], env=env, capture_output=True, text=True)
+    else:
+        return subprocess.run([shell, "-c", cmd], env=env, capture_output=True, text=True)
 
 
 def setup_emsdk(workspace_root, tui):
@@ -78,10 +95,9 @@ def main():
     emsdk_env_script = emsdk_dir / "emsdk_env.sh"
     if emsdk_env_script.exists():
         tui.info("Loading Emscripten environment")
-        result = subprocess.run(
-            ["/bin/bash", "-c", f"source {emsdk_env_script} && env"],
-            capture_output=True,
-            text=True
+        result = run_shell_command(
+            f"source {emsdk_env_script} && env",
+            env=env
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():

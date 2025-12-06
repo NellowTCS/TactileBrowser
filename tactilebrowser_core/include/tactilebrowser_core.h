@@ -25,6 +25,14 @@ void tactilebrowser_set_renderer(RenderInterface* renderer);
 // Render URL to container
 RenderResult tactilebrowser_render_url(const char* url, void* container, int max_width, int max_height);
 
+// Render already-downloaded HTML string to a container
+RenderResult tactilebrowser_render_html_string(const char* url,
+											  const char* html,
+											  size_t length,
+											  void* container,
+											  int max_width,
+											  int max_height);
+
 // Utility functions
 void memory_buffer_init(MemoryBuffer* buffer);
 void memory_buffer_free(MemoryBuffer* buffer);

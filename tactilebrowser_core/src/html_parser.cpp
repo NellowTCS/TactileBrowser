@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <lexbor/dom/interfaces/node.h>
 
 // Color table for named colors
 const ColorEntry color_table[] = {
@@ -111,9 +112,32 @@ static const char* html_parser_get_element_tag(lxb_dom_element_t* element, size_
     return (const char*)lxb_dom_element_local_name(element, length);
 }
 
-static const char* html_parser_get_element_text(lxb_dom_element_t* element, size_t* length) {
-    lxb_char_t* text = lxb_dom_node_text_content(lxb_dom_interface_node(element), length);
-    return (const char*)text;
+static char* html_parser_get_element_text(lxb_dom_element_t* element, size_t* length) {
+    if (!element) {
+        if (length) *length = 0;
+        return NULL;
+    }
+
+    size_t text_len = 0;
+    lxb_char_t* text = lxb_dom_node_text_content(lxb_dom_interface_node(element), &text_len);
+    if (length) *length = text_len;
+
+    char* copy = NULL;
+    if (text && text_len > 0) {
+        copy = safe_strndup((const char*)text, text_len);
+    }
+
+    if (text) {
+        lxb_dom_node_t* node = lxb_dom_interface_node(element);
+        lxb_dom_document_t* owner = node ? node->owner_document : NULL;
+        if (owner) {
+            lxb_dom_document_destroy_text(owner, text);
+        } else {
+            free(text);
+        }
+    }
+
+    return copy;
 }
 
 static const char* html_parser_get_element_attr(lxb_dom_element_t* element, const char* attr_name, size_t* length) {
@@ -193,7 +217,7 @@ void parse_inline_style(const char* style, RenderContext* context, void* widget)
         if (strcmp(key_start, "color") == 0) {
             uint32_t color = 0;
             if (val_start[0] == '#') {
-                if (sscanf(val_start + 1, "%06lx", &color) == 1) {
+                if (sscanf(val_start + 1, "%6x", &color) == 1) {
                     if (context->renderer->interface->set_text_color) {
                         context->renderer->interface->set_text_color(context->renderer, widget, color);
                     }
@@ -212,7 +236,7 @@ void parse_inline_style(const char* style, RenderContext* context, void* widget)
         }
         else if (strcmp(key_start, "background-color") == 0) {
             uint32_t color = 0;
-            if (val_start[0] == '#' && sscanf(val_start + 1, "%06lx", &color) == 1) {
+            if (val_start[0] == '#' && sscanf(val_start + 1, "%6x", &color) == 1) {
                 if (context->renderer->interface->set_bg_color) {
                     context->renderer->interface->set_bg_color(context->renderer, widget, color);
                     // Set opacity to cover

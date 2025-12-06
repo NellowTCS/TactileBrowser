@@ -17,6 +17,12 @@ python3 scripts/build_pocketmage.py
 python3 scripts/build_wasm.py
 ```
 
+#### Serve the WASM build
+```bash
+python3 scripts/serve_wasm.py           # rebuilds and serves wasm-src/dist
+python3 scripts/serve_wasm.py --no-build --port 8080  # reuse artifacts, custom port
+```
+
 ### Tactility (ESP-IDF v5.5)
 
 First, set up ESP-IDF and install dependencies:

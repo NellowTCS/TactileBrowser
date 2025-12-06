@@ -4,6 +4,7 @@
 import os
 import sys
 import subprocess
+import platform
 from pathlib import Path
 
 from tui import TUI
@@ -13,10 +14,12 @@ def install_system_dependencies(tui):
     """Install system-level dependencies for ESP-IDF."""
     tui.subsection("Installing system dependencies")
     
-    # Check if apt is available (Linux)
-    result = subprocess.run(["which", "apt-get"], capture_output=True)
-    if result.returncode != 0:
-        tui.warning("apt-get not found - assuming dependencies are already installed")
+    system = platform.system()
+    
+    # Skip on non-Linux systems
+    if system != "Linux":
+        tui.info(f"Skipping automatic dependency install on {system}")
+        tui.info("Please ensure you have: git, cmake, ninja, python3, libffi-dev, libssl-dev, libusb-1.0-0")
         return
     
     deps = [
@@ -50,11 +53,11 @@ def setup_esp_idf(workspace_root, tui):
     if esp_idf_dir.exists() and (esp_idf_dir / "export.sh").exists():
         tui.success("ESP-IDF already present")
     else:
-        tui.subsection("Downloading ESP-IDF v5.5")
-        tui.command(["git", "clone", "--branch", "v5.5", "--depth", "1", 
+        tui.subsection("Downloading ESP-IDF v5.5.1 with submodules")
+        tui.command(["git", "clone", "--branch", "v5.5.1", "--depth", "1", "--recursive",
              "https://github.com/espressif/esp-idf.git", str(esp_idf_dir)])
         result = subprocess.run(
-            ["git", "clone", "--branch", "v5.5", "--depth", "1", 
+            ["git", "clone", "--branch", "v5.5.1", "--depth", "1", "--recursive",
              "https://github.com/espressif/esp-idf.git", str(esp_idf_dir)]
         )
         if result.returncode != 0:
@@ -62,13 +65,16 @@ def setup_esp_idf(workspace_root, tui):
             sys.exit(1)
         tui.success("ESP-IDF downloaded")
     
-    # Install ESP-IDF tools using install.sh
-    tui.subsection("Installing ESP-IDF build tools")
+    # Install ESP-IDF tools for ESP32 and ESP32-S3 targets
+    tui.subsection("Installing ESP-IDF build tools for ESP32 and ESP32-S3")
     tui.info("This may take several minutes...")
     
-    tui.command(["bash", str(esp_idf_dir / "install.sh")])
+    install_script = esp_idf_dir / "install.sh"
+    shell_cmd = f"bash {install_script} esp32,esp32s3"
+    tui.command(["bash", str(install_script), "esp32,esp32s3"])
     result = subprocess.run(
-        ["bash", str(esp_idf_dir / "install.sh")],
+        shell_cmd,
+        shell=True,
         cwd=esp_idf_dir,
         capture_output=True,
         text=True

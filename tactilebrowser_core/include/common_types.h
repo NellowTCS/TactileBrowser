@@ -38,6 +38,8 @@ typedef struct {
     void* (*create_label)(Renderer* renderer, const char* text, int x, int y);
     // Create button
     void* (*create_button)(Renderer* renderer, const char* text, int x, int y);
+    // Register hyperlink handler for interactive widgets
+    void (*register_link_handler)(Renderer* renderer, void* widget, const char* url);
     // Create container
     void* (*create_container)(Renderer* renderer, int x, int y, int width, int height);
     // Set text color
@@ -67,6 +69,7 @@ struct _RenderContext {
     int current_y;
     int max_width;
     int max_height;
+    const char* document_url;
 };
 
 // HTML element types

@@ -24,7 +24,7 @@ typedef struct {
     // Get element tag name
     const char* (*get_element_tag)(lxb_dom_element_t* element, size_t* length);
     // Get element text content
-    const char* (*get_element_text)(lxb_dom_element_t* element, size_t* length);
+    char* (*get_element_text)(lxb_dom_element_t* element, size_t* length);
     // Get element attribute
     const char* (*get_element_attr)(lxb_dom_element_t* element, const char* attr_name, size_t* length);
     // Get next sibling

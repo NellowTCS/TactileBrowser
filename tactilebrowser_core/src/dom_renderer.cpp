@@ -1,15 +1,171 @@
 #include "dom_renderer.h"
 #include "tactilebrowser_core.h"
+#include "css_parser.h"
+#include "url_utils.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <lexbor/dom/interfaces/node.h>
 
 // Default renderer (placeholder)
 static RenderInterface* default_renderer = NULL;
 
+static char* copy_node_text(lxb_dom_node_t* node, size_t* length) {
+    if (!node) {
+        if (length) *length = 0;
+        return NULL;
+    }
+
+    size_t text_len = 0;
+    lxb_char_t* text = lxb_dom_node_text_content(node, &text_len);
+    if (length) *length = text_len;
+
+    char* copy = NULL;
+    if (text && text_len > 0) {
+        copy = safe_strndup((const char*)text, text_len);
+    }
+
+    if (text) {
+        lxb_dom_document_t* owner = node->owner_document;
+        if (owner) {
+            lxb_dom_document_destroy_text(owner, text);
+        } else {
+            free(text);
+        }
+    }
+
+    return copy;
+}
+
+static bool rel_contains_stylesheet(const char* rel, size_t length) {
+    if (!rel || length == 0) return false;
+    char* lowered = safe_strndup(rel, length);
+    if (!lowered) return false;
+    for (size_t i = 0; i < length; ++i) {
+        lowered[i] = (char)tolower((unsigned char)lowered[i]);
+    }
+    bool is_stylesheet = strstr(lowered, "stylesheet") != NULL;
+    free(lowered);
+    return is_stylesheet;
+}
+
+static void import_external_stylesheet(const char* href, size_t href_len, const char* base_url) {
+    if (!href || href_len == 0 || !html_parser.download_html) return;
+    char* href_copy = safe_strndup(href, href_len);
+    if (!href_copy) return;
+
+    char* absolute_url = tactilebrowser_resolve_url(base_url, href_copy);
+    free(href_copy);
+    if (!absolute_url) return;
+
+    MemoryBuffer css_buffer;
+    memory_buffer_init(&css_buffer);
+    RenderResult result = html_parser.download_html(absolute_url, &css_buffer);
+    if (result == RENDER_SUCCESS && css_buffer.data && css_buffer.size > 0) {
+        css_parser_add_stylesheet(css_buffer.data, css_buffer.size);
+    }
+    memory_buffer_free(&css_buffer);
+    free(absolute_url);
+}
+
+static void collect_stylesheets(lxb_dom_node_t* node, const char* base_url) {
+    if (!node) return;
+
+    if (node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        lxb_dom_element_t* element = (lxb_dom_element_t*)node;
+        size_t tag_len = 0;
+        const char* tag = html_parser.get_element_tag(element, &tag_len);
+        if (tag && tag_len == 5 && strncmp(tag, "style", 5) == 0) {
+            size_t css_len = 0;
+            char* css_text = html_parser.get_element_text(element, &css_len);
+            if (css_text && css_len > 0) {
+                css_parser_add_stylesheet(css_text, css_len);
+            }
+            free(css_text);
+        }
+        else if (tag && tag_len == 4 && strncmp(tag, "link", 4) == 0) {
+            size_t rel_len = 0;
+            const char* rel_attr = html_parser.get_element_attr(element, "rel", &rel_len);
+            if (rel_contains_stylesheet(rel_attr, rel_len)) {
+                size_t href_len = 0;
+                const char* href_attr = html_parser.get_element_attr(element, "href", &href_len);
+                if (href_attr && href_len > 0) {
+                    import_external_stylesheet(href_attr, href_len, base_url);
+                }
+            }
+        }
+    }
+
+    lxb_dom_node_t* child = html_parser.get_first_child(node);
+    while (child) {
+        collect_stylesheets(child, base_url);
+        child = html_parser.get_next_sibling(child);
+    }
+}
+
+static void apply_css_selector(RenderContext* context, void* widget, const char* selector, size_t length) {
+    if (!context || !widget || !selector || length == 0) return;
+    const char* css_block = css_parser_get_declarations(selector, length);
+    if (css_block) {
+        dom_renderer.apply_styles(widget, context, css_block);
+    }
+}
+
+static void apply_class_selectors(lxb_dom_element_t* element, RenderContext* context, void* widget) {
+    if (!element) return;
+    size_t class_len = 0;
+    const char* class_attr = html_parser.get_element_attr(element, "class", &class_len);
+    if (!class_attr || class_len == 0) return;
+
+    char* classes = safe_strndup(class_attr, class_len);
+    if (!classes) return;
+
+    char* saveptr = NULL;
+    char* token = strtok_r(classes, " \t\r\n", &saveptr);
+    while (token) {
+        size_t token_len = strlen(token);
+        if (token_len > 0) {
+            size_t selector_len = token_len + 1;
+            char* selector = (char*)malloc(selector_len + 1);
+            if (selector) {
+                selector[0] = '.';
+                memcpy(selector + 1, token, token_len + 1);
+                apply_css_selector(context, widget, selector, selector_len);
+                free(selector);
+            }
+        }
+        token = strtok_r(NULL, " \t\r\n", &saveptr);
+    }
+
+    free(classes);
+}
+
+static void apply_id_selector(lxb_dom_element_t* element, RenderContext* context, void* widget) {
+    if (!element) return;
+    size_t id_len = 0;
+    const char* id_attr = html_parser.get_element_attr(element, "id", &id_len);
+    if (!id_attr || id_len == 0) return;
+
+    char* selector = (char*)malloc(id_len + 2);
+    if (!selector) return;
+
+    selector[0] = '#';
+    memcpy(selector + 1, id_attr, id_len);
+    selector[id_len + 1] = '\0';
+
+    apply_css_selector(context, widget, selector, id_len + 1);
+    free(selector);
+}
+
 // DOM renderer interface implementation
 static RenderResult dom_renderer_render_document(lxb_html_document_t* document, RenderContext* context) {
     if (!document || !context || !context->renderer) return RENDER_ERROR_UNKNOWN;
+
+    css_parser_reset();
+    lxb_dom_element_t* root = lxb_dom_document_element(lxb_dom_interface_document(document));
+    if (root) {
+        collect_stylesheets(lxb_dom_interface_node(root), context->document_url);
+    }
 
     lxb_dom_element_t* body = html_parser.find_body_element(document);
     if (!body) return RENDER_ERROR_PARSE;
@@ -21,7 +177,7 @@ static RenderResult dom_renderer_render_document(lxb_html_document_t* document, 
 
     // Reset Y position
     context->current_y = 10;
-
+    
     // Render body content
     dom_renderer.render_node(lxb_dom_interface_node(body), context);
 
@@ -34,29 +190,32 @@ static void dom_renderer_render_node(lxb_dom_node_t* node, RenderContext* contex
     lxb_dom_node_type_t node_type = node->type;
 
     if (node_type == LXB_DOM_NODE_TYPE_TEXT) {
-        size_t len;
-        const char* txt = html_parser.get_element_text((lxb_dom_element_t*)node, &len);
+        size_t len = 0;
+        char* txt = copy_node_text(node, &len);
 
         if (txt && len > 0) {
-            // Trim whitespace
-            const char* start = txt;
-            const char* end = txt + len - 1;
+            char* start = txt;
+            char* end = txt + len - 1;
 
             while (start <= end && isspace((unsigned char)*start)) start++;
             while (end >= start && isspace((unsigned char)*end)) end--;
 
             if (start <= end) {
                 size_t trimmed_len = end - start + 1;
-                char* text = safe_strndup(start, trimmed_len);
-                if (text) {
-                    void* label = dom_renderer.create_element_widget(ELEMENT_PARAGRAPH, context, text);
-                    if (label && context->renderer->interface->get_height) {
-                        context->current_y += context->renderer->interface->get_height(context->renderer, label) + 5;
-                    }
-                    free(text);
+                if (start != txt) {
+                    memmove(txt, start, trimmed_len);
+                }
+                txt[trimmed_len] = '\0';
+
+                void* label = dom_renderer.create_element_widget(ELEMENT_PARAGRAPH, context, txt);
+                if (label && context->renderer->interface->get_height) {
+                    context->current_y += context->renderer->interface->get_height(context->renderer, label) + 5;
                 }
             }
         }
+
+        free(txt);
+        return;
     }
     else if (node_type == LXB_DOM_NODE_TYPE_ELEMENT) {
         lxb_dom_element_t* el = (lxb_dom_element_t*)node;
@@ -65,14 +224,54 @@ static void dom_renderer_render_node(lxb_dom_node_t* node, RenderContext* contex
         const char* tag_name = html_parser.get_element_tag(el, &tag_len);
         ElementType elem_type = get_element_type(tag_name, tag_len);
 
-        // Get text content
-        size_t text_len;
-        const char* text_content = html_parser.get_element_text(el, &text_len);
+        bool consumes_children = false;
+        size_t text_len = 0;
+        char* text_content = NULL;
 
-        // Create widget
-        void* widget = dom_renderer.create_element_widget(elem_type, context, text_content ? (const char*)text_content : "");
+        switch (elem_type) {
+            case ELEMENT_HEADING1:
+            case ELEMENT_HEADING2:
+            case ELEMENT_HEADING3:
+            case ELEMENT_PARAGRAPH:
+            case ELEMENT_LINK:
+            case ELEMENT_SPAN:
+            case ELEMENT_BUTTON:
+                consumes_children = true;
+                break;
+            default:
+                break;
+        }
+
+        if (consumes_children) {
+            text_content = html_parser.get_element_text(el, &text_len);
+            if (text_content && text_len > 0) {
+                char* start = text_content;
+                char* end = text_content + text_len - 1;
+
+                while (start <= end && isspace((unsigned char)*start)) start++;
+                while (end >= start && isspace((unsigned char)*end)) end--;
+
+                if (start > end) {
+                    text_content[0] = '\0';
+                } else {
+                    size_t trimmed_len = end - start + 1;
+                    if (start != text_content) {
+                        memmove(text_content, start, trimmed_len);
+                    }
+                    text_content[trimmed_len] = '\0';
+                }
+            }
+        }
+
+        void* widget = dom_renderer.create_element_widget(elem_type, context, text_content ? text_content : "");
 
         if (widget) {
+            if (tag_name && tag_len > 0) {
+                apply_css_selector(context, widget, tag_name, tag_len);
+            }
+            apply_class_selectors(el, context, widget);
+            apply_id_selector(el, context, widget);
+
             // Apply inline styles
             size_t style_len;
             const char* style_attr = html_parser.get_element_attr(el, "style", &style_len);
@@ -85,23 +284,33 @@ static void dom_renderer_render_node(lxb_dom_node_t* node, RenderContext* contex
                 }
             }
 
-            // Handle special elements
-            if (elem_type == ELEMENT_BUTTON && text_content) {
-                // Button text is already set in create_element_widget
+            if (elem_type == ELEMENT_LINK && context->renderer->interface->register_link_handler) {
+                size_t href_len = 0;
+                const char* href_attr = html_parser.get_element_attr(el, "href", &href_len);
+                if (href_attr && href_len > 0) {
+                    char* href = safe_strndup(href_attr, href_len);
+                    if (href) {
+                        context->renderer->interface->register_link_handler(context->renderer, widget, href);
+                        free(href);
+                    }
+                }
             }
 
-            // Update Y position
             if (context->renderer->interface->get_height) {
                 context->current_y += context->renderer->interface->get_height(context->renderer, widget) + 5;
             }
 
-            // Render children
-            lxb_dom_node_t* child = html_parser.get_first_child(node);
-            while (child) {
-                dom_renderer.render_node(child, context);
-                child = html_parser.get_next_sibling(child);
+            bool render_children = !consumes_children || !text_content || text_content[0] == '\0';
+            if (render_children) {
+                lxb_dom_node_t* child = html_parser.get_first_child(node);
+                while (child) {
+                    dom_renderer.render_node(child, context);
+                    child = html_parser.get_next_sibling(child);
+                }
             }
         }
+
+        free(text_content);
     }
 }
 
