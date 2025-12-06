@@ -11,41 +11,22 @@ from tui import TUI
 
 
 def setup_esp_idf(workspace_root, tui):
-    """Download and setup ESP-IDF v5.5 if not already present."""
+    """Check if ESP-IDF v5.5 is ready. If not, provide instructions."""
     esp_idf_dir = workspace_root / "esp-idf"
     
-    # Check if ESP-IDF already exists
-    if esp_idf_dir.exists() and (esp_idf_dir / "tools" / "idf.py").exists():
-        tui.success("ESP-IDF already installed")
+    # Check if ESP-IDF already exists with export script
+    if esp_idf_dir.exists() and (esp_idf_dir / "export.sh").exists():
+        tui.success("ESP-IDF found")
         return esp_idf_dir
-
-    tui.subsection("Downloading ESP-IDF v5.5")
-    tui.command(["git", "clone", "--branch", "v5.5", "--depth", "1", 
-         "https://github.com/espressif/esp-idf.git", str(esp_idf_dir)])
-    result = subprocess.run(
-        ["git", "clone", "--branch", "v5.5", "--depth", "1", 
-         "https://github.com/espressif/esp-idf.git", str(esp_idf_dir)]
-    )
-    if result.returncode != 0:
-        tui.error("Failed to clone ESP-IDF")
-        sys.exit(1)
-    tui.success("ESP-IDF downloaded")
     
-    # Install ESP-IDF tools
-    tui.subsection("Installing ESP-IDF tools")
-    
-    install_script = esp_idf_dir / "tools" / "idf_tools.py"
-    tui.command(["python3", str(install_script), "install"])
-    result = subprocess.run(
-        ["python3", str(install_script), "install"],
-        cwd=esp_idf_dir
-    )
-    if result.returncode != 0:
-        tui.error("Failed to install ESP-IDF tools")
-        sys.exit(1)
-    
-    tui.success("ESP-IDF setup complete")
-    return esp_idf_dir
+    # Not found - give instructions
+    tui.error("ESP-IDF not properly set up")
+    tui.info("\nRun this first to install dependencies and set up ESP-IDF:")
+    tui.info("  python3 scripts/setup_esp_idf.py")
+    tui.info("\nOr manually run:")
+    tui.info("  sudo apt-get update")
+    tui.info("  sudo apt-get install git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0")
+    sys.exit(1)
 
 
 def main():
@@ -72,8 +53,9 @@ def main():
     idf_env_script = esp_idf_path / "export.sh"
     if idf_env_script.exists():
         tui.info("Loading ESP-IDF environment")
+        # Source the environment and capture all variables
         result = subprocess.run(
-            ["/bin/bash", "-c", f"source {idf_env_script} && env"],
+            ["/bin/bash", "-c", f"source {idf_env_script} 2>/dev/null && env"],
             capture_output=True,
             text=True
         )
@@ -83,6 +65,10 @@ def main():
                     key, value = line.split("=", 1)
                     env[key] = value
             tui.success("Environment loaded")
+        else:
+            tui.warning("Could not load ESP-IDF environment - proceeding anyway")
+    else:
+        tui.warning(f"ESP-IDF export script not found at {idf_env_script}")
 
     # Parse arguments
     use_custom_sdk = "--local-sdk" in sys.argv or "--custom-sdk" in sys.argv
@@ -90,17 +76,19 @@ def main():
     if use_custom_sdk:
         tui.subsection("Building with custom SDK")
         env["TACTILITY_SDK_PATH"] = str(tactility_dir / ".tactility")
-        tui.command(["python", "tactility.py", "build", "--local-sdk"])
+        cmd = f"source {esp_idf_path / 'export.sh'} 2>/dev/null && python tactility.py build --local-sdk"
+        tui.command(cmd)
         result = subprocess.run(
-            ["python", "tactility.py", "build", "--local-sdk"],
+            ["/bin/bash", "-c", cmd],
             cwd=tactility_dir,
             env=env
         )
     else:
         tui.subsection("Building with default SDK")
-        tui.command(["python", "tactility.py", "build", "--verbose"])
+        cmd = f"source {esp_idf_path / 'export.sh'} 2>/dev/null && python tactility.py build --verbose"
+        tui.command(cmd)
         result = subprocess.run(
-            ["python", "tactility.py", "build", "--verbose"],
+            ["/bin/bash", "-c", cmd],
             cwd=tactility_dir,
             env=env
         )
