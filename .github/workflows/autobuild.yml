@@ -20,9 +20,7 @@ jobs:
         with:
           submodules: recursive
       - name: Build for MacOS (Universal)
-        uses: ./.github/actions/macos
-        with:
-          upload_artifact: 'true'
+        run: python3 scripts/build_macos.py
 
   pocketmage-build:
     name: Build for PocketMage
@@ -33,9 +31,7 @@ jobs:
         with:
           submodules: recursive
       - name: Build PocketMage app
-        uses: ./.github/actions/pocketmage
-        with:
-          upload_artifact: 'true'
+        run: python3 scripts/build_pocketmage.py
 
   tactility-build:
     name: Build for Tactility
@@ -46,10 +42,7 @@ jobs:
         with:
           submodules: recursive
       - name: Build Tactility app
-        uses: ./.github/actions/tactility
-        with:
-          upload_artifact: 'true'
-          use_custom_sdk: 'false'
+        run: python3 scripts/build_tactility.py
   
   wasm-build:
     name: Build for WASM
@@ -60,6 +53,4 @@ jobs:
         with:
           submodules: recursive
       - name: Build WASM app
-        uses: ./.github/actions/wasm
-        with:
-          deploy: 'true'
+        run: python3 scripts/build_wasm.py

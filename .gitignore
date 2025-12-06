@@ -445,3 +445,28 @@ CMakeUserPresets.json
 build
 
 .pio/
+sdl2-source/
+sdl2-build-universal/
+sdl2-universal/
+dist/
+
+# Build artifacts - Desktop (macOS)
+desktop-src/build/
+
+# Build artifacts - PocketMage
+pocketmage-src/.pio/
+pocketmage-src/latest/
+pocketmage-src/browser.tar
+pocketmage-src/browser.bin
+pocketmage-src/browser_ICON.bin
+
+# Build artifacts - Tactility (ESP-IDF)
+tactility-src/build/
+
+# Build artifacts - WASM
+wasm-src/build/
+
+# SDK installations
+emsdk/
+esp-idf/
+
