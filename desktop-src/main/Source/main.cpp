@@ -248,7 +248,7 @@ static void navigate_to_link(const char* url) {
 
 static void lvgl_link_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t* target = lv_event_get_target(e);
+    lv_obj_t* target = (lv_obj_t*)lv_event_get_target(e);
 
     if (code == LV_EVENT_DELETE) {
         g_linkTargets.erase(target);

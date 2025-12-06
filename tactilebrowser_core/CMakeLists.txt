@@ -10,6 +10,7 @@ if(DEFINED ENV{IDF_PATH})
     file(GLOB_RECURSE LEXBOR_SOURCES
         lexbor/source/lexbor/core/*.c
         lexbor/source/lexbor/css/*.c
+        lexbor/source/lexbor/css/syntax/*.c
         lexbor/source/lexbor/dom/*.c
         lexbor/source/lexbor/encoding/*.c
         lexbor/source/lexbor/engine/*.c
