@@ -42,8 +42,8 @@ bool html_parser_init(void);
 // Cleanup HTML parser
 void html_parser_cleanup(void);
 
-// Determine element type from tag name
-ElementType get_element_type(const char* tag_name, size_t tag_len);
+// Determine element type from Lexbor element (pure native Lexbor approach)
+ElementType get_element_type_from_element(lxb_dom_element_t* element);
 
 // Color table for named colors
 extern const ColorEntry color_table[];

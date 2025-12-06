@@ -4,6 +4,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <lexbor/dom/interfaces/node.h>
+#include <lexbor/tag/tag.h>
 
 // Default HTML downloader (placeholder)
 static RenderResult default_download_html(const char* url, MemoryBuffer* buffer) {
@@ -171,15 +172,35 @@ void html_parser_cleanup(void) {
     // Cleanup lexbor if needed
 }
 
-// Determine element type from tag name
-ElementType get_element_type(const char* tag_name, size_t tag_len) {
-    if (tag_len == 2 && memcmp(tag_name, "h1", 2) == 0) return ELEMENT_HEADING1;
-    if (tag_len == 2 && memcmp(tag_name, "h2", 2) == 0) return ELEMENT_HEADING2;
-    if (tag_len == 2 && memcmp(tag_name, "h3", 2) == 0) return ELEMENT_HEADING3;
-    if (tag_len == 1 && memcmp(tag_name, "p", 1) == 0) return ELEMENT_PARAGRAPH;
-    if (tag_len == 1 && memcmp(tag_name, "a", 1) == 0) return ELEMENT_LINK;
-    if (tag_len == 6 && memcmp(tag_name, "button", 6) == 0) return ELEMENT_BUTTON;
-    if (tag_len == 3 && memcmp(tag_name, "div", 3) == 0) return ELEMENT_DIV;
-    if (tag_len == 4 && memcmp(tag_name, "span", 4) == 0) return ELEMENT_SPAN;
-    return ELEMENT_UNKNOWN;
+// Determine element type from Lexbor element using native tag IDs
+ElementType get_element_type_from_element(lxb_dom_element_t* element) {
+    if (!element) return ELEMENT_UNKNOWN;
+
+    lxb_tag_id_t tag_id = lxb_dom_element_tag_id(element);
+
+    switch (tag_id) {
+        case LXB_TAG_H1: return ELEMENT_HEADING1;
+        case LXB_TAG_H2: return ELEMENT_HEADING2;
+        case LXB_TAG_H3: return ELEMENT_HEADING3;
+        case LXB_TAG_H4: return ELEMENT_HEADING4;
+        case LXB_TAG_H5: return ELEMENT_HEADING5;
+        case LXB_TAG_H6: return ELEMENT_HEADING6;
+        case LXB_TAG_P: return ELEMENT_PARAGRAPH;
+        case LXB_TAG_A: return ELEMENT_LINK;
+        case LXB_TAG_BUTTON: return ELEMENT_BUTTON;
+        case LXB_TAG_DIV: return ELEMENT_DIV;
+        case LXB_TAG_SPAN: return ELEMENT_SPAN;
+        case LXB_TAG_STRONG: return ELEMENT_STRONG;
+        case LXB_TAG_EM: return ELEMENT_EM;
+        case LXB_TAG_B: return ELEMENT_BOLD;
+        case LXB_TAG_I: return ELEMENT_ITALIC;
+        case LXB_TAG_U: return ELEMENT_UNDERLINE;
+        case LXB_TAG_LI: return ELEMENT_LIST_ITEM;
+        case LXB_TAG_OL: return ELEMENT_ORDERED_LIST;
+        case LXB_TAG_UL: return ELEMENT_UNORDERED_LIST;
+        case LXB_TAG_IMG: return ELEMENT_IMAGE;
+        case LXB_TAG_BR: return ELEMENT_BREAK;
+        case LXB_TAG_HR: return ELEMENT_HORIZONTAL_RULE;
+        default: return ELEMENT_UNKNOWN;
+    }
 }

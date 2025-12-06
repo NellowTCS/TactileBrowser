@@ -1,6 +1,7 @@
 #include "dom_renderer.h"
 #include "tactilebrowser_core.h"
 #include "css_parser.h"
+#include "html_parser.h"
 #include "url_utils.h"
 #include <stdlib.h>
 #include <string.h>
@@ -209,7 +210,8 @@ static void dom_renderer_render_node(lxb_dom_node_t* node, RenderContext* contex
 
                 void* label = dom_renderer.create_element_widget(ELEMENT_PARAGRAPH, context, txt);
                 if (label && context->renderer->interface->get_height) {
-                    context->current_y += context->renderer->interface->get_height(context->renderer, label) + 5;
+                    int height = context->renderer->interface->get_height(context->renderer, label);
+                    context->current_y += height + 3;
                 }
             }
         }
@@ -220,9 +222,7 @@ static void dom_renderer_render_node(lxb_dom_node_t* node, RenderContext* contex
     else if (node_type == LXB_DOM_NODE_TYPE_ELEMENT) {
         lxb_dom_element_t* el = (lxb_dom_element_t*)node;
 
-        size_t tag_len;
-        const char* tag_name = html_parser.get_element_tag(el, &tag_len);
-        ElementType elem_type = get_element_type(tag_name, tag_len);
+        ElementType elem_type = get_element_type_from_element(el);
 
         bool consumes_children = false;
         size_t text_len = 0;
@@ -232,10 +232,19 @@ static void dom_renderer_render_node(lxb_dom_node_t* node, RenderContext* contex
             case ELEMENT_HEADING1:
             case ELEMENT_HEADING2:
             case ELEMENT_HEADING3:
+            case ELEMENT_HEADING4:
+            case ELEMENT_HEADING5:
+            case ELEMENT_HEADING6:
             case ELEMENT_PARAGRAPH:
             case ELEMENT_LINK:
             case ELEMENT_SPAN:
             case ELEMENT_BUTTON:
+            case ELEMENT_STRONG:
+            case ELEMENT_EM:
+            case ELEMENT_BOLD:
+            case ELEMENT_ITALIC:
+            case ELEMENT_UNDERLINE:
+            case ELEMENT_LIST_ITEM:
                 consumes_children = true;
                 break;
             default:
@@ -266,23 +275,22 @@ static void dom_renderer_render_node(lxb_dom_node_t* node, RenderContext* contex
         void* widget = dom_renderer.create_element_widget(elem_type, context, text_content ? text_content : "");
 
         if (widget) {
-            if (tag_name && tag_len > 0) {
-                apply_css_selector(context, widget, tag_name, tag_len);
-            }
             apply_class_selectors(el, context, widget);
             apply_id_selector(el, context, widget);
 
-                // Apply inline styles
-                size_t style_len;
-                const char* style_attr = html_parser.get_element_attr(el, "style", &style_len);
+            // Apply inline styles
+            size_t style_len;
+            const char* style_attr = html_parser.get_element_attr(el, "style", &style_len);
 
-                if (style_attr && style_len > 0) {
-                    char* style = safe_strndup(style_attr, style_len);
-                    if (style) {
-                        css_parser_parse_inline_style(style, context, widget);
-                        free(style);
-                    }
-                }            if (elem_type == ELEMENT_LINK && context->renderer->interface->register_link_handler) {
+            if (style_attr && style_len > 0) {
+                char* style = safe_strndup(style_attr, style_len);
+                if (style) {
+                    css_parser_parse_inline_style(style, context, widget);
+                    free(style);
+                }
+            }
+
+            if (elem_type == ELEMENT_LINK && context->renderer->interface->register_link_handler) {
                 size_t href_len = 0;
                 const char* href_attr = html_parser.get_element_attr(el, "href", &href_len);
                 if (href_attr && href_len > 0) {
@@ -294,8 +302,9 @@ static void dom_renderer_render_node(lxb_dom_node_t* node, RenderContext* contex
                 }
             }
 
-            if (context->renderer->interface->get_height) {
-                context->current_y += context->renderer->interface->get_height(context->renderer, widget) + 5;
+            if (context->renderer->interface->get_height && elem_type != ELEMENT_BREAK && elem_type != ELEMENT_HORIZONTAL_RULE) {
+                int height = context->renderer->interface->get_height(context->renderer, widget);
+                context->current_y += height + 3;
             }
 
             bool render_children = !consumes_children || !text_content || text_content[0] == '\0';
@@ -319,36 +328,108 @@ static void* dom_renderer_create_element_widget(ElementType type, RenderContext*
 
     switch (type) {
         case ELEMENT_HEADING1:
-        case ELEMENT_HEADING2:
-        case ELEMENT_HEADING3:
-        case ELEMENT_PARAGRAPH:
-        case ELEMENT_LINK:
-        case ELEMENT_SPAN:
             if (context->renderer->interface->create_label) {
                 widget = context->renderer->interface->create_label(context->renderer, text, 0, context->current_y);
-                // Apply heading colors
-                if (type == ELEMENT_HEADING1 || type == ELEMENT_HEADING2 || type == ELEMENT_HEADING3) {
-                    if (context->renderer->interface->set_text_color) {
-                        context->renderer->interface->set_text_color(context->renderer, widget, 0x000080);
-                    }
-                } else if (type == ELEMENT_LINK) {
-                    if (context->renderer->interface->set_text_color) {
-                        context->renderer->interface->set_text_color(context->renderer, widget, 0x0000EE);
-                    }
+                if (context->renderer->interface->set_text_color) {
+                    context->renderer->interface->set_text_color(context->renderer, widget, 0x000080);
                 }
+                context->current_y += 5; // Extra space after H1
+            }
+            break;
+
+        case ELEMENT_HEADING2:
+        case ELEMENT_HEADING3:
+        case ELEMENT_HEADING4:
+        case ELEMENT_HEADING5:
+        case ELEMENT_HEADING6:
+            if (context->renderer->interface->create_label) {
+                widget = context->renderer->interface->create_label(context->renderer, text, 0, context->current_y);
+                if (context->renderer->interface->set_text_color) {
+                    context->renderer->interface->set_text_color(context->renderer, widget, 0x000080);
+                }
+                context->current_y += 3; // Extra space after headings
+            }
+            break;
+
+        case ELEMENT_PARAGRAPH:
+            if (context->renderer->interface->create_label) {
+                widget = context->renderer->interface->create_label(context->renderer, text, 0, context->current_y);
+                context->current_y += 3; // Space after paragraph
+            }
+            break;
+
+        case ELEMENT_LINK:
+            if (context->renderer->interface->create_label) {
+                widget = context->renderer->interface->create_label(context->renderer, text, 0, context->current_y);
+                if (context->renderer->interface->set_text_color) {
+                    context->renderer->interface->set_text_color(context->renderer, widget, 0x0000EE);
+                }
+            }
+            break;
+
+        case ELEMENT_SPAN:
+        case ELEMENT_STRONG:
+        case ELEMENT_EM:
+        case ELEMENT_BOLD:
+        case ELEMENT_ITALIC:
+        case ELEMENT_UNDERLINE:
+            if (context->renderer->interface->create_label) {
+                widget = context->renderer->interface->create_label(context->renderer, text, 0, context->current_y);
             }
             break;
 
         case ELEMENT_BUTTON:
             if (context->renderer->interface->create_button) {
                 widget = context->renderer->interface->create_button(context->renderer, text, 0, context->current_y);
+                context->current_y += 3; // Space after button
+            }
+            break;
+
+        case ELEMENT_LIST_ITEM:
+            if (context->renderer->interface->create_label) {
+                // Add bullet point
+                char bullet_text[512] = "• ";
+                if (text) {
+                    strncat(bullet_text, text, sizeof(bullet_text) - 3);
+                }
+                widget = context->renderer->interface->create_label(context->renderer, bullet_text, 10, context->current_y);
+            }
+            break;
+
+        case ELEMENT_UNORDERED_LIST:
+        case ELEMENT_ORDERED_LIST:
+            if (context->renderer->interface->create_container) {
+                widget = context->renderer->interface->create_container(context->renderer, 0, context->current_y,
+                                                           context->max_width, 50);
+                context->current_y += 3; // Space after list
             }
             break;
 
         case ELEMENT_DIV:
             if (context->renderer->interface->create_container) {
                 widget = context->renderer->interface->create_container(context->renderer, 0, context->current_y,
-                                                           context->max_width, 50); // Default height
+                                                           context->max_width, 50);
+            }
+            break;
+
+        case ELEMENT_BREAK:
+            context->current_y += 10; // Line break spacing
+            break;
+
+        case ELEMENT_HORIZONTAL_RULE:
+            // Create a visual separator
+            if (context->renderer->interface->create_container) {
+                widget = context->renderer->interface->create_container(context->renderer, 0, context->current_y,
+                                                           context->max_width, 2);
+                context->current_y += 10; // Space around HR
+            }
+            break;
+
+        case ELEMENT_IMAGE:
+            // Placeholder for image
+            if (context->renderer->interface->create_label) {
+                widget = context->renderer->interface->create_label(context->renderer, "[Image]", 0, context->current_y);
+                context->current_y += 3;
             }
             break;
 
