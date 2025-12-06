@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TactileBrowser</title>
+  <style>
+    body { margin: 0; background: #0D1117; color: #fff; }
+    #canvas { display: block; margin: 0 auto; background: #1E1E1E; }
+    #address-bar { width: 600px; font-size: 1.2em; }
+    #controls { margin: 10px; }
+    #status { color: #FFD93D; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <input type="text" id="address-bar" value="https://example.com">
+    <button onclick="loadUrl()">Go</button>
+    <span id="status"></span>
+  </div>
+  <canvas id="canvas" width="800" height="600"></canvas>
+  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+  <script>
+    eruda.init();
+  </script>
+
+  <!-- Glue script (non-module) defines window.TactileBrowserWasm and an init() function -->
+  <script src="glue.js"></script>
+
+  <!-- Load the Emscripten generated JS as an ES module and instantiate it -->
+  <script type="module">
+    // The generated file exports a default factory function when built with MODULARIZE=1 and EXPORT_ES6=1.
+    import createModule from './TactileBrowserWasm.js';
+
+    // Create the module instance. Provide canvas and locateFile so the loader can find the .wasm file.
+    const modulePromise = createModule({
+      canvas: document.getElementById('canvas'),
+      locateFile: (path) => {
+        // Ensure the .wasm file resolves correctly relative to this HTML
+        if (path.endsWith('.wasm')) return './TactileBrowserWasm.wasm';
+        return path;
+      }
+    });
+
+    modulePromise.then((ModuleInstance) => {
+      if (window.TactileBrowserWasm && typeof window.TactileBrowserWasm.init === 'function') {
+        window.TactileBrowserWasm.init(ModuleInstance);
+      } else {
+        console.warn('glue not loaded or init missing; exposing Module as global fallback');
+        window.Module = ModuleInstance; // best-effort fallback
+      }
+    }).catch((err) => {
+      const status = document.getElementById('status');
+      status.textContent = 'WASM init error';
+      status.style.color = '#FF6B6B';
+      console.error('Failed to instantiate WASM module:', err);
+    });
+
+    // UI event binding (keeps existing global loadUrl function behavior)
+    function setupAddressBarInteractions() {
+      const addressBar = document.getElementById('address-bar');
+      if (!addressBar) return;
+
+      const swallow = (event) => {
+        // Allow the browser to handle default text input but prevent SDL/Emscripten from hijacking the event.
+        event.stopPropagation();
+      };
+
+      ['keydown', 'keypress', 'keyup'].forEach((type) => {
+        addressBar.addEventListener(type, swallow, true);
+      });
+
+      addressBar.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          window.loadUrl();
+        }
+      });
+    }
+
+    window.loadUrl = function() {
+      const url = document.getElementById('address-bar').value;
+      window.TactileBrowserWasm.loadUrl(url);
+    };
+
+    setupAddressBarInteractions();
+  </script>
+</body>
+</html>
