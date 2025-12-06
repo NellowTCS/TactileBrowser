@@ -1,4 +1,4 @@
-name: Deploy WASM to GitHub Pages
+name: Deploy TactileBrowser to GitHub Pages
 
 on:
   push:
