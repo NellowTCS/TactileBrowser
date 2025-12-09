@@ -99,7 +99,8 @@ static String maskPasswordForDisplay(const String& value) {
 }
 
 static void loadWifiCredentials() {
-    if (wifiPrefs.begin(WIFI_PREF_NAMESPACE, true)) {
+    // might be causing crashes if true
+    if (wifiPrefs.begin(WIFI_PREF_NAMESPACE, false)) {
         wifiSSID = wifiPrefs.getString(WIFI_PREF_SSID_KEY, "");
         wifiPassword = wifiPrefs.getString(WIFI_PREF_PASS_KEY, "");
         wifiPrefs.end();
