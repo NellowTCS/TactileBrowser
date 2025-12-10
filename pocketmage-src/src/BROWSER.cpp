@@ -106,8 +106,7 @@ static String maskPasswordForDisplay(const String& value) {
 }
 
 static void loadWifiCredentials() {
-    // might be causing crashes if true
-    if (wifiPrefs.begin(WIFI_PREF_NAMESPACE, false)) {
+    if (wifiPrefs.begin(WIFI_PREF_NAMESPACE, true)) {  // true = readonly mode for loading
         wifiSSID = wifiPrefs.getString(WIFI_PREF_SSID_KEY, "");
         wifiPassword = wifiPrefs.getString(WIFI_PREF_PASS_KEY, "");
         wifiPrefs.end();
@@ -118,10 +117,6 @@ static void loadWifiCredentials() {
 
     if (WiFi.status() == WL_CONNECTED) {
         wifiConnected = true;
-        String currentSSID = WiFi.SSID();
-        if (currentSSID.length() > 0) {
-            wifiSSID = currentSSID;
-        }
         wifiStatusMessage = "Connected to " + wifiSSID + " (" + WiFi.localIP().toString() + ")";
     } else {
         wifiConnected = false;
@@ -160,11 +155,19 @@ static bool attemptWifiConnection(uint32_t timeoutMs = WIFI_CONNECT_TIMEOUT_MS) 
     }
 
     unsigned long start = millis();
+    unsigned long lastWdtReset = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeoutMs) {
-        esp_task_wdt_reset();
+        // Reset watchdog every second during connection attempt
+        if (millis() - lastWdtReset > 1000) {
+            esp_task_wdt_reset();
+            lastWdtReset = millis();
+        }
         vTaskDelay(pdMS_TO_TICKS(WIFI_CONNECT_POLL_MS));
         yield();
     }
+    
+    // Final reset after connection attempt
+    esp_task_wdt_reset();
 
     wl_status_t status = WiFi.status();
     if (status == WL_CONNECTED) {
@@ -181,10 +184,6 @@ static bool attemptWifiConnection(uint32_t timeoutMs = WIFI_CONNECT_TIMEOUT_MS) 
 static bool ensureWifiConnected(bool autoAttempt = true) {
     if (WiFi.status() == WL_CONNECTED) {
         wifiConnected = true;
-        String currentSSID = WiFi.SSID();
-        if (currentSSID.length() > 0) {
-            wifiSSID = currentSSID;
-        }
         wifiStatusMessage = "Connected to " + wifiSSID + " (" + WiFi.localIP().toString() + ")";
         return true;
     }
@@ -556,15 +555,18 @@ void browserCRInput() {
 // Browser initialization
 void BROWSER_INIT() {
     Serial.println("Initializing BROWSER!");
+    unsigned long initStart = millis();
     
     // Reset watchdog at start of initialization
     esp_task_wdt_reset();
     
     // Initialize core library
+    Serial.println("Init: tactilebrowser_core...");
     if (!tactilebrowser_core_init()) {
         Serial.println("Failed to initialize tactilebrowser_core!");
         return;
     }
+    Serial.printf("Init: core done (%lums)\n", millis() - initStart);
     CurrentBROWSERState = BROWSER_VIEW;
     CurrentFrameState = &browserScreen;
     
@@ -593,18 +595,31 @@ void BROWSER_INIT() {
     EINK().setTXTFont(&FreeMonoBold9pt7b);
     
     // Initialize CURL
+    Serial.println("Init: CURL...");
     curl_global_init(CURL_GLOBAL_DEFAULT);
+    Serial.printf("Init: CURL done (%lums)\n", millis() - initStart);
 
+    esp_task_wdt_reset();
+    Serial.println("Init: Loading WiFi credentials...");
     loadWifiCredentials();
+    Serial.printf("Init: WiFi credentials loaded (%lums)\n", millis() - initStart);
+    esp_task_wdt_reset();
+    
+    Serial.println("Init: Setting WiFi mode...");
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
     WiFi.persistent(false);
+    Serial.printf("Init: WiFi mode set (%lums)\n", millis() - initStart);
+    
+    esp_task_wdt_reset();
+    // Don't auto-connect during init to avoid long delays
     ensureWifiConnected(false);
     
     // Reset watchdog after WiFi setup
     esp_task_wdt_reset();
     
     update_browser_display();
+    Serial.printf("BROWSER initialized in %lums\n", millis() - initStart);
 }
 
 // Keyboard handler
@@ -832,12 +847,9 @@ void loop() {
 
 // E-ink handler task (migrated from einkFunc.cpp)
 void einkHandler(void* parameter) {
-    // Add this task to watchdog monitoring
-    esp_task_wdt_add(NULL);
-    
+    // Don't add to watchdog - this task runs independently and shouldn't block on WiFi
     vTaskDelay(pdMS_TO_TICKS(250));
     for (;;) {
-        esp_task_wdt_reset();
         applicationEinkHandler();
         vTaskDelay(pdMS_TO_TICKS(50));
         yield();
