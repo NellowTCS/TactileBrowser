@@ -843,4 +843,3 @@ void einkHandler(void* parameter) {
         yield();
     }
 }
-}
