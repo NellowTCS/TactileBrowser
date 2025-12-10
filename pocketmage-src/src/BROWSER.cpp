@@ -415,7 +415,7 @@ void drawBrowser() {
         // Status bar
         switch (CurrentBROWSERState) {
             case BROWSER_VIEW:
-                EINK().drawStatusBar("TAB->tabs | FN->URL | SH->WiFi | ESC->home");
+                EINK().drawStatusBar("TAB->tabs | FN+u->URL | FN+w->WiFi | FN+<->exit");
                 break;
             case BROWSER_URL_INPUT:
                 EINK().drawStatusBar("Enter URL | CR->load | ESC->cancel");
@@ -439,7 +439,7 @@ void drawBrowser() {
         
         // Title
         EINK().getDisplay().setCursor(20, 20);
-        EINK().getDisplay().print("PocketMage Browser");
+        EINK().getDisplay().print("TactileBrowser");
         
         // Tab indicator
         EINK().getDisplay().setCursor(200, 20);
@@ -638,10 +638,14 @@ void processKB_BROWSER() {
                 }
             }
         }
-        else if (inchar == 13) { // Enter
+        else if (inchar == 13 || inchar == 20) { // Enter or SEL
             browserCRInput();
         }
-        else if (inchar == 20) { // ESC/Clear
+        else if (inchar == 18) { // FN key - toggle modifier state for UI feedback
+            if (CurrentKBState == FUNC) CurrentKBState = NORMAL;
+            else CurrentKBState = FUNC;
+        }
+        else if (inchar == 12) { // FN + < (left arrow) = Back/Exit
             switch (CurrentBROWSERState) {
                 case BROWSER_VIEW:
                     closeBrowser();
@@ -659,6 +663,56 @@ void processKB_BROWSER() {
                     break;
             }
         }
+        else if (inchar == 19) { // Left arrow (scroll up)
+            if (dynamicScroll < CurrentFrameState->source->size() - 10) {
+                dynamicScroll++;
+                newLineAdded = true;
+            }
+        }
+        else if (inchar == '7') { // FN + u = Enter URL
+            if (CurrentBROWSERState == BROWSER_VIEW) {
+                CurrentBROWSERState = BROWSER_URL_INPUT;
+                CurrentFrameState = &urlScreen;
+                current_line = tabs[active_tab].url;
+                update_url_display();
+                newLineAdded = true;
+            } else if (CurrentBROWSERState == BROWSER_URL_INPUT || 
+                       CurrentBROWSERState == BROWSER_TAB_SELECT ||
+                       CurrentBROWSERState == BROWSER_WIFI_SSID_INPUT ||
+                       CurrentBROWSERState == BROWSER_WIFI_PASSWORD_INPUT) {
+                // In text input, FN+u produces '7' which should be typed
+                current_line += inchar;
+                if (CurrentBROWSERState == BROWSER_URL_INPUT) {
+                    update_url_display();
+                } else if (CurrentBROWSERState == BROWSER_WIFI_SSID_INPUT ||
+                           CurrentBROWSERState == BROWSER_WIFI_PASSWORD_INPUT) {
+                    update_wifi_display();
+                }
+            }
+        }
+        else if (inchar == '2') { // FN + w = WiFi setup
+            if (CurrentBROWSERState == BROWSER_VIEW) {
+                start_wifi_setup();
+            } else if (CurrentBROWSERState == BROWSER_URL_INPUT || 
+                       CurrentBROWSERState == BROWSER_TAB_SELECT ||
+                       CurrentBROWSERState == BROWSER_WIFI_SSID_INPUT ||
+                       CurrentBROWSERState == BROWSER_WIFI_PASSWORD_INPUT) {
+                // In text input, FN+w produces '2' which should be typed
+                current_line += inchar;
+                if (CurrentBROWSERState == BROWSER_URL_INPUT) {
+                    update_url_display();
+                } else if (CurrentBROWSERState == BROWSER_WIFI_SSID_INPUT ||
+                           CurrentBROWSERState == BROWSER_WIFI_PASSWORD_INPUT) {
+                    update_wifi_display();
+                }
+            }
+        }
+        else if (inchar == 21 || inchar == 6) { // Right arrow - scroll down
+            if (dynamicScroll > 0) {
+                dynamicScroll--;
+                newLineAdded = true;
+            }
+        }
         else if (inchar == 9) { // Tab - switch to tab selection
             if (CurrentBROWSERState == BROWSER_VIEW) {
                 CurrentBROWSERState = BROWSER_TAB_SELECT;
@@ -668,40 +722,12 @@ void processKB_BROWSER() {
                 newLineAdded = true;
             }
         }
-        else if (inchar == 14) { // FN+TAB - URL input
-            if (CurrentBROWSERState == BROWSER_VIEW) {
-                CurrentBROWSERState = BROWSER_URL_INPUT;
-                CurrentFrameState = &urlScreen;
-                current_line = tabs[active_tab].url;
-                update_url_display();
-                newLineAdded = true;
-            } else {
-                if (CurrentKBState == FUNC) CurrentKBState = NORMAL;
-                else CurrentKBState = FUNC;
-            }
-        }
-        else if (inchar == 17) { // Shift
-            if (CurrentBROWSERState == BROWSER_VIEW) {
-                start_wifi_setup();
-            } else {
-                if (CurrentKBState == SHIFT) CurrentKBState = NORMAL;
-                else CurrentKBState = SHIFT;
-            }
-        }
-        else if (inchar == 19 || inchar == 12) { // Left arrow - scroll up
-            if (dynamicScroll < CurrentFrameState->source->size() - 10) {
-                dynamicScroll++;
-                newLineAdded = true;
-            }
-        }
-        else if (inchar == 21 || inchar == 6) { // Right arrow - scroll down
-            if (dynamicScroll > 0) {
-                dynamicScroll--;
-                newLineAdded = true;
-            }
+        else if (inchar == 17) { // SHIFT - set modifier state
+            if (CurrentKBState == SHIFT) CurrentKBState = NORMAL;
+            else CurrentKBState = SHIFT;
         }
         else {
-            // Add character to current line
+            // Add character to current line (for all other printable characters)
             if (CurrentBROWSERState == BROWSER_URL_INPUT || 
                 CurrentBROWSERState == BROWSER_TAB_SELECT ||
                 CurrentBROWSERState == BROWSER_WIFI_SSID_INPUT ||
@@ -714,8 +740,6 @@ void processKB_BROWSER() {
                     update_wifi_display();
                 }
             }
-            
-            if (CurrentKBState == SHIFT) CurrentKBState = NORMAL;
         }
         
         // Update OLED display
