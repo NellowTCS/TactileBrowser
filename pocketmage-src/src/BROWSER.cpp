@@ -42,11 +42,13 @@ char* download_html(const String& url) {
     // Reset watchdog before potentially long operation
     esp_task_wdt_reset();
     
+    Serial.printf("HTTP: Starting download of %s\n", url.c_str());
+    
     CURL *curl = curl_easy_init();
     MemoryBuffer chunk = {0};
     
     if (!curl) {
-        Serial.println("curl_easy_init failed");
+        Serial.println("HTTP: curl_easy_init failed");
         return nullptr;
     }
 
@@ -60,11 +62,14 @@ char* download_html(const String& url) {
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
+    Serial.println("HTTP: Performing request...");
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
-        Serial.println("curl_easy_perform failed: " + String(curl_easy_strerror(res)));
+        Serial.printf("HTTP: curl_easy_perform failed: %s (code %d)\n", curl_easy_strerror(res), res);
         if (chunk.data) free(chunk.data);
         chunk.data = nullptr;
+    } else {
+        Serial.printf("HTTP: Download successful, received %zu bytes\n", chunk.size);
     }
     
     // Reset watchdog after potentially long operation
@@ -114,9 +119,11 @@ static bool attemptWifiConnection(uint32_t timeoutMs = WIFI_CONNECT_TIMEOUT_MS) 
     if (wifiSSID.isEmpty()) {
         wifiStatusMessage = "Enter an SSID first";
         wifiConnected = false;
+        Serial.println("WiFi: No SSID configured");
         return false;
     }
 
+    Serial.printf("WiFi: Attempting connection to '%s'...\n", wifiSSID.c_str());
     wifiStatusMessage = "Connecting to " + wifiSSID + "...";
     
     // Configure WiFi using ESP-IDF API
@@ -126,28 +133,41 @@ static bool attemptWifiConnection(uint32_t timeoutMs = WIFI_CONNECT_TIMEOUT_MS) 
     strncpy((char*)wifi_config.sta.ssid, wifiSSID.c_str(), sizeof(wifi_config.sta.ssid) - 1);
     if (wifiPassword.length() > 0) {
         strncpy((char*)wifi_config.sta.password, wifiPassword.c_str(), sizeof(wifi_config.sta.password) - 1);
+        Serial.println("WiFi: Password configured");
+    } else {
+        Serial.println("WiFi: No password (open network)");
     }
     
     esp_wifi_set_mode(WIFI_MODE_STA);
     esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    esp_wifi_connect();
+    esp_err_t err = esp_wifi_connect();
+    if (err != ESP_OK) {
+        Serial.printf("WiFi: esp_wifi_connect failed: %d\n", err);
+        wifiStatusMessage = "WiFi connect error: " + String(err);
+        wifiConnected = false;
+        return false;
+    }
 
     unsigned long start = millis();
     unsigned long lastWdtReset = millis();
     
     // Poll for connection status
     wifi_ap_record_t ap_info;
+    int attempts = 0;
     while ((millis() - start) < timeoutMs) {
         // Reset watchdog every second during connection attempt
         if (millis() - lastWdtReset > 1000) {
             esp_task_wdt_reset();
             lastWdtReset = millis();
+            attempts++;
+            Serial.printf("WiFi: Still connecting... (%d sec)\n", attempts);
         }
         
         // Check if connected
         if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
             wifiConnected = true;
             wifiStatusMessage = "Connected to " + wifiSSID;
+            Serial.printf("WiFi: Connected! RSSI: %d\n", ap_info.rssi);
             return true;
         }
         
@@ -159,7 +179,8 @@ static bool attemptWifiConnection(uint32_t timeoutMs = WIFI_CONNECT_TIMEOUT_MS) 
     esp_task_wdt_reset();
 
     wifiConnected = false;
-    wifiStatusMessage = "Wi-Fi connection timeout";
+    wifiStatusMessage = "WiFi connection timeout";
+    Serial.printf("WiFi: Connection timeout after %lu ms\n", millis() - start);
     return false;
 }
 
@@ -291,7 +312,7 @@ bool load_url(const String& url, int tab_index) {
     esp_task_wdt_reset();
 
     if (!ensureWifiConnected(true)) {
-        browserAppend("Error: Wi-Fi not connected. Use SH to configure.");
+        browserAppend("Error: Wi-Fi not connected. Use FN->W to configure.");
         browserAppend("Note: libcurl_esp32 requires an active Wi-Fi link.");
         OLED().oledWord("Wi-Fi failed");
         newLineAdded = true;
