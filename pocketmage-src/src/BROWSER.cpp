@@ -2,6 +2,7 @@
 #include <curl/curl.h>
 #include <tactilebrowser_core.h>
 #include <WiFi.h>
+#include <esp_task_wdt.h>
 
 static constexpr const char* TAG = "BROWSER";
 
@@ -37,6 +38,9 @@ static size_t http_write_callback(void *contents, size_t size, size_t nmemb, voi
 
 // Download HTML content (keeping curl implementation for pocketmage)
 char* download_html(const String& url) {
+    // Reset watchdog before potentially long operation
+    esp_task_wdt_reset();
+    
     CURL *curl = curl_easy_init();
     MemoryBuffer chunk = {0};
     
@@ -61,6 +65,9 @@ char* download_html(const String& url) {
         if (chunk.data) free(chunk.data);
         chunk.data = nullptr;
     }
+    
+    // Reset watchdog after potentially long operation
+    esp_task_wdt_reset();
     
     curl_easy_cleanup(curl);
     return chunk.data;
@@ -154,7 +161,8 @@ static bool attemptWifiConnection(uint32_t timeoutMs = WIFI_CONNECT_TIMEOUT_MS) 
 
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeoutMs) {
-        delay(WIFI_CONNECT_POLL_MS);
+        esp_task_wdt_reset();
+        vTaskDelay(pdMS_TO_TICKS(WIFI_CONNECT_POLL_MS));
         yield();
     }
 
@@ -295,6 +303,9 @@ bool load_url(const String& url, int tab_index) {
     if (WiFi.status() != WL_CONNECTED) {
         OLED().oledWord("Connecting Wi-Fi...");
     }
+
+    // Reset watchdog before potentially long WiFi connection
+    esp_task_wdt_reset();
 
     if (!ensureWifiConnected(true)) {
         browserAppend("Error: Wi-Fi not connected. Use SH to configure.");
@@ -546,6 +557,9 @@ void browserCRInput() {
 void BROWSER_INIT() {
     Serial.println("Initializing BROWSER!");
     
+    // Reset watchdog at start of initialization
+    esp_task_wdt_reset();
+    
     // Initialize core library
     if (!tactilebrowser_core_init()) {
         Serial.println("Failed to initialize tactilebrowser_core!");
@@ -586,6 +600,9 @@ void BROWSER_INIT() {
     WiFi.setAutoReconnect(true);
     WiFi.persistent(false);
     ensureWifiConnected(false);
+    
+    // Reset watchdog after WiFi setup
+    esp_task_wdt_reset();
     
     update_browser_display();
 }
@@ -783,13 +800,25 @@ void applicationEinkHandler() {
 
 // Setup function
 void setup() {
+    // Configure task watchdog with longer timeout to prevent false triggers during long operations
+    // Using older ESP-IDF API: esp_task_wdt_init(timeout_seconds, panic_on_trigger)
+    esp_task_wdt_deinit();
+    esp_task_wdt_init(30, true);  // 30 second timeout, panic on trigger
+    esp_task_wdt_add(NULL); // Add current task to watchdog
+    
     setCpuFrequencyMhz(240);
     PocketMage_INIT();
+    
+    esp_task_wdt_reset();
     BROWSER_INIT();
+    esp_task_wdt_reset();
 }
 
 // Main loop
 void loop() {
+    // Reset watchdog at start of each loop iteration
+    esp_task_wdt_reset();
+    
     // Check battery
     pocketmage::power::updateBattState();
     
@@ -803,10 +832,15 @@ void loop() {
 
 // E-ink handler task (migrated from einkFunc.cpp)
 void einkHandler(void* parameter) {
+    // Add this task to watchdog monitoring
+    esp_task_wdt_add(NULL);
+    
     vTaskDelay(pdMS_TO_TICKS(250));
     for (;;) {
+        esp_task_wdt_reset();
         applicationEinkHandler();
         vTaskDelay(pdMS_TO_TICKS(50));
         yield();
     }
+}
 }
