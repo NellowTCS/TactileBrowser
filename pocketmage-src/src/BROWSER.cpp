@@ -1,7 +1,8 @@
 #include <pocketmage.h>
 #include <curl/curl.h>
 #include <tactilebrowser_core.h>
-#include <WiFi.h>
+#include <esp_wifi.h>
+#include <esp_event.h>
 #include <esp_task_wdt.h>
 
 static constexpr const char* TAG = "BROWSER";
@@ -73,28 +74,6 @@ char* download_html(const String& url) {
     return chunk.data;
 }
 
-static const char* wifiStatusToString(wl_status_t status) {
-    switch (status) {
-        case WL_IDLE_STATUS:        return "Idle";
-        case WL_CONNECTED:          return "Connected";
-        case WL_NO_SSID_AVAIL:      return "SSID not found";
-        case WL_CONNECT_FAILED:      return "Auth failed";
-        case WL_CONNECTION_LOST:    return "Connection lost";
-        case WL_DISCONNECTED:       return "Disconnected";
-        case WL_SCAN_COMPLETED:     return "Scan completed";
-#ifdef WL_NO_MODULE
-    case WL_NO_MODULE:          return "WiFi module missing";
-#endif
-#ifdef WL_NO_SHIELD
-    case WL_NO_SHIELD:          return "WiFi shield missing";
-#endif
-#ifdef WL_MODE_CHANGED
-        case WL_MODE_CHANGED:       return "Mode changed";
-#endif
-        default:                    return "Unknown";
-    }
-}
-
 static String maskPasswordForDisplay(const String& value) {
     if (value.isEmpty()) return "";
     String masked;
@@ -115,16 +94,11 @@ static void loadWifiCredentials() {
         wifiPassword = "";
     }
 
-    if (WiFi.status() == WL_CONNECTED) {
-        wifiConnected = true;
-        wifiStatusMessage = "Connected to " + wifiSSID + " (" + WiFi.localIP().toString() + ")";
+    wifiConnected = false;
+    if (wifiSSID.length() > 0) {
+        wifiStatusMessage = "Wi-Fi ready for " + wifiSSID;
     } else {
-        wifiConnected = false;
-        if (wifiSSID.length() > 0) {
-            wifiStatusMessage = "Wi-Fi ready for " + wifiSSID;
-        } else {
-            wifiStatusMessage = "Wi-Fi not configured";
-        }
+        wifiStatusMessage = "Wi-Fi not configured";
     }
 }
 
@@ -144,24 +118,39 @@ static bool attemptWifiConnection(uint32_t timeoutMs = WIFI_CONNECT_TIMEOUT_MS) 
     }
 
     wifiStatusMessage = "Connecting to " + wifiSSID + "...";
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect(true, true);
-    WiFi.setAutoReconnect(true);
-    WiFi.persistent(false);
-    if (wifiPassword.length() == 0) {
-        WiFi.begin(wifiSSID.c_str());
-    } else {
-        WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
+    
+    // Configure WiFi using ESP-IDF API
+    wifi_config_t wifi_config = {};
+    memset(&wifi_config, 0, sizeof(wifi_config_t));
+    
+    strncpy((char*)wifi_config.sta.ssid, wifiSSID.c_str(), sizeof(wifi_config.sta.ssid) - 1);
+    if (wifiPassword.length() > 0) {
+        strncpy((char*)wifi_config.sta.password, wifiPassword.c_str(), sizeof(wifi_config.sta.password) - 1);
     }
+    
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    esp_wifi_connect();
 
     unsigned long start = millis();
     unsigned long lastWdtReset = millis();
-    while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeoutMs) {
+    
+    // Poll for connection status
+    wifi_ap_record_t ap_info;
+    while ((millis() - start) < timeoutMs) {
         // Reset watchdog every second during connection attempt
         if (millis() - lastWdtReset > 1000) {
             esp_task_wdt_reset();
             lastWdtReset = millis();
         }
+        
+        // Check if connected
+        if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+            wifiConnected = true;
+            wifiStatusMessage = "Connected to " + wifiSSID;
+            return true;
+        }
+        
         vTaskDelay(pdMS_TO_TICKS(WIFI_CONNECT_POLL_MS));
         yield();
     }
@@ -169,22 +158,16 @@ static bool attemptWifiConnection(uint32_t timeoutMs = WIFI_CONNECT_TIMEOUT_MS) 
     // Final reset after connection attempt
     esp_task_wdt_reset();
 
-    wl_status_t status = WiFi.status();
-    if (status == WL_CONNECTED) {
-        wifiConnected = true;
-        wifiStatusMessage = "Connected to " + wifiSSID + " (" + WiFi.localIP().toString() + ")";
-        return true;
-    }
-
     wifiConnected = false;
-    wifiStatusMessage = "Wi-Fi failed: " + String(wifiStatusToString(status));
+    wifiStatusMessage = "Wi-Fi connection timeout";
     return false;
 }
 
 static bool ensureWifiConnected(bool autoAttempt = true) {
-    if (WiFi.status() == WL_CONNECTED) {
+    wifi_ap_record_t ap_info;
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
         wifiConnected = true;
-        wifiStatusMessage = "Connected to " + wifiSSID + " (" + WiFi.localIP().toString() + ")";
+        wifiStatusMessage = "Connected to " + wifiSSID;
         return true;
     }
 
@@ -219,8 +202,8 @@ static void update_wifi_display() {
         case BROWSER_WIFI_STATUS:
             urlAppend("Wi-Fi Status");
             urlAppend(wifiStatusMessage);
-            if (WiFi.status() == WL_CONNECTED) {
-                urlAppend("IP: " + WiFi.localIP().toString());
+            if (wifiConnected) {
+                urlAppend("Connected to: " + wifiSSID);
             } else if (!wifiSSID.isEmpty()) {
                 urlAppend("Target: " + wifiSSID);
             }
@@ -299,7 +282,8 @@ bool load_url(const String& url, int tab_index) {
         return false;
     }
 
-    if (WiFi.status() != WL_CONNECTED) {
+    wifi_ap_record_t ap_info;
+    if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
         OLED().oledWord("Connecting Wi-Fi...");
     }
 
@@ -606,9 +590,8 @@ void BROWSER_INIT() {
     esp_task_wdt_reset();
     
     Serial.println("Init: Setting WiFi mode...");
-    WiFi.mode(WIFI_STA);
-    WiFi.setAutoReconnect(true);
-    WiFi.persistent(false);
+    // Use ESP-IDF API - non-blocking and reliable
+    esp_wifi_set_mode(WIFI_MODE_STA);
     Serial.printf("Init: WiFi mode set (%lums)\n", millis() - initStart);
     
     esp_task_wdt_reset();
