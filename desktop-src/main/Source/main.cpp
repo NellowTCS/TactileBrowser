@@ -23,6 +23,44 @@ static std::unordered_map<lv_obj_t*, std::string> g_linkTargets;
 static void navigate_to_link(const char* url);
 static void lvgl_link_event_cb(lv_event_t *e);
 
+static bool has_http_scheme(const char* url) {
+    if (!url) return false;
+    return strncmp(url, "http://", 7) == 0 || strncmp(url, "https://", 8) == 0;
+}
+
+static std::string extract_origin_from_url(const char* url) {
+    if (!url || url[0] == '\0') return "";
+    std::string value(url);
+    size_t scheme_pos = value.find("://");
+    if (scheme_pos == std::string::npos) return "";
+    size_t host_start = scheme_pos + 3;
+    size_t path_pos = value.find('/', host_start);
+    if (path_pos == std::string::npos) {
+        return value;
+    }
+    return value.substr(0, path_pos);
+}
+
+static std::string resolve_relative_url(const char* candidate, const char* base_url) {
+    if (!candidate || candidate[0] == '\0') return "";
+    if (has_http_scheme(candidate)) {
+        return std::string(candidate);
+    }
+
+    if (candidate[0] == '/') {
+        if (!base_url || base_url[0] == '\0') {
+            return "";
+        }
+        std::string origin = extract_origin_from_url(base_url);
+        if (origin.empty()) {
+            return "";
+        }
+        return origin + candidate;
+    }
+
+    return std::string(candidate);
+}
+
 // LVGL Renderer implementation for tactilebrowser_core
 class LVGLRenderer {
 public:
@@ -34,10 +72,13 @@ public:
         interface.cleanup = lvgl_cleanup;
         interface.create_label = lvgl_create_label;
         interface.create_button = lvgl_create_button;
+        interface.create_text_input = lvgl_create_text_input;
+        interface.create_text_area = lvgl_create_text_area;
         interface.register_link_handler = lvgl_register_link;
         interface.create_container = lvgl_create_container;
         interface.set_text_color = lvgl_set_text_color;
         interface.set_bg_color = lvgl_set_bg_color;
+        interface.set_bg_gradient = lvgl_set_bg_gradient;
         interface.set_text_align = lvgl_set_text_align;
         interface.clear_container = lvgl_clear_container;
         interface.get_height = lvgl_get_height;
@@ -75,6 +116,25 @@ private:
         return btn;
     }
 
+    static void* lvgl_create_text_input(Renderer* renderer,
+                                        const char* value,
+                                        const char* placeholder,
+                                        int x,
+                                        int y,
+                                        int width,
+                                        int height) {
+        return lvgl_create_text_widget(renderer, value, placeholder, x, y, width, height, false);
+    }
+
+    static void* lvgl_create_text_area(Renderer* renderer,
+                                       const char* value,
+                                       int x,
+                                       int y,
+                                       int width,
+                                       int height) {
+        return lvgl_create_text_widget(renderer, value, nullptr, x, y, width, height, true);
+    }
+
     static void* lvgl_create_container(Renderer* renderer, int x, int y, int width, int height) {
         lv_obj_t* parent = (lv_obj_t*)renderer->platform_data;
         lv_obj_t* container = lv_obj_create(parent);
@@ -93,6 +153,21 @@ private:
     static void lvgl_set_bg_color(Renderer* renderer, void* widget, uint32_t color) {
         lv_obj_t* obj = (lv_obj_t*)widget;
         lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
+    }
+
+    static void lvgl_set_bg_gradient(Renderer* renderer, void* widget, const LinearGradientFill* gradient) {
+        (void)renderer;
+        if (!widget || !gradient || gradient->stop_count == 0) return;
+
+        lv_obj_t* obj = static_cast<lv_obj_t*>(widget);
+        uint32_t start_color = gradient->stops[0].color;
+        uint32_t end_color = gradient->stops[gradient->stop_count - 1].color;
+        lv_obj_set_style_bg_color(obj, lv_color_hex(start_color), 0);
+        lv_obj_set_style_bg_grad_color(obj, lv_color_hex(end_color), 0);
+        lv_obj_set_style_bg_grad_dir(obj, gradient_dir_from_angle(gradient->angle_deg), 0);
+        lv_obj_set_style_bg_main_stop(obj, 0, 0);
+        lv_obj_set_style_bg_grad_stop(obj, 255, 0);
+        lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     }
 
     static void lvgl_set_text_align(Renderer* renderer, void* widget, int align) {
@@ -119,6 +194,48 @@ private:
         lv_obj_add_event_cb(obj, lvgl_link_event_cb, LV_EVENT_ALL, NULL);
         lv_obj_set_style_text_color(obj, lv_color_hex(0x4EA1FF), 0);
         lv_obj_set_style_text_decor(obj, LV_TEXT_DECOR_UNDERLINE, 0);
+    }
+
+    static lv_obj_t* lvgl_create_text_widget(Renderer* renderer,
+                                             const char* value,
+                                             const char* placeholder,
+                                             int x,
+                                             int y,
+                                             int width,
+                                             int height,
+                                             bool multiline) {
+        lv_obj_t* container = (lv_obj_t*)renderer->platform_data;
+        if (!container) return nullptr;
+
+        lv_obj_t* textarea = lv_textarea_create(container);
+        lv_obj_set_pos(textarea, x, y);
+        lv_obj_set_size(textarea,
+                        width > 0 ? width : (multiline ? 320 : 240),
+                        height > 0 ? height : (multiline ? 120 : 40));
+        lv_textarea_set_one_line(textarea, !multiline);
+        lv_textarea_set_text(textarea, value ? value : "");
+        if (placeholder && placeholder[0] != '\0') {
+            lv_textarea_set_placeholder_text(textarea, placeholder);
+        }
+        lv_textarea_set_scrollbar_mode(textarea, LV_SCROLLBAR_MODE_AUTO);
+        lv_obj_set_style_bg_color(textarea, lv_color_hex(0x151515), 0);
+        lv_obj_set_style_bg_opa(textarea, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(textarea, lv_color_hex(0x3A3A3A), 0);
+        lv_obj_set_style_border_width(textarea, 1, 0);
+        lv_obj_set_style_pad_all(textarea, 6, 0);
+        return textarea;
+    }
+
+    static lv_grad_dir_t gradient_dir_from_angle(float angle_deg) {
+        float normalized = angle_deg;
+        while (normalized < 0.0f) normalized += 360.0f;
+        while (normalized >= 360.0f) normalized -= 360.0f;
+
+        if ((normalized >= 45.0f && normalized < 135.0f) ||
+            (normalized >= 225.0f && normalized < 315.0f)) {
+            return LV_GRAD_DIR_HOR;
+        }
+        return LV_GRAD_DIR_VER;
     }
 };
 
@@ -191,18 +308,30 @@ static size_t http_write_callback(void *contents, size_t size, size_t nmemb, voi
 void load_url(const char *url, int tab_index) {
     if (!url || strlen(url) == 0 || tab_index >= MAX_TABS) return;
 
-    // Validate URL format
-    if (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0) {
+    std::string resolved = resolve_relative_url(url, tabs[tab_index].url);
+    if (resolved.empty()) {
         lv_obj_clean(tabs[tab_index].content_area);
         lv_obj_t *error_label = lv_label_create(tabs[tab_index].content_area);
-        lv_label_set_text(error_label, "Invalid URL format. Please use http:// or https://");
+        lv_label_set_text(error_label, "Unable to resolve relative path without an active site.");
+        lv_obj_center(error_label);
+        lv_obj_set_style_text_color(error_label, lv_color_hex(0xFF6B6B), 0);
+        return;
+    }
+
+    const char* final_url = resolved.c_str();
+
+    // Validate URL format
+    if (!has_http_scheme(final_url)) {
+        lv_obj_clean(tabs[tab_index].content_area);
+        lv_obj_t *error_label = lv_label_create(tabs[tab_index].content_area);
+        lv_label_set_text(error_label, "Invalid URL format. Please use http(s) links.");
         lv_obj_center(error_label);
         lv_obj_set_style_text_color(error_label, lv_color_hex(0xFF6B6B), 0);
         return;
     }
 
     // Update tab URL
-    strncpy(tabs[tab_index].url, url, MAX_URL_LENGTH - 1);
+    strncpy(tabs[tab_index].url, final_url, MAX_URL_LENGTH - 1);
     tabs[tab_index].url[MAX_URL_LENGTH - 1] = '\0';
 
     // Show loading message
@@ -216,7 +345,7 @@ void load_url(const char *url, int tab_index) {
     renderer_wrapper.platform_data = tabs[tab_index].content_area;
 
     // Use tactilebrowser_core to render the URL
-    RenderResult result = tactilebrowser_render_url(url, tabs[tab_index].content_area, SCREEN_WIDTH - 40, SCREEN_HEIGHT - 100);
+    RenderResult result = tactilebrowser_render_url(final_url, tabs[tab_index].content_area, SCREEN_WIDTH - 40, SCREEN_HEIGHT - 100);
 
     if (result != RENDER_SUCCESS) {
         lv_obj_clean(tabs[tab_index].content_area);

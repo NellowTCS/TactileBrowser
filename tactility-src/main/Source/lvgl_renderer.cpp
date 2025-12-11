@@ -88,6 +88,54 @@ static void* lvgl_renderer_create_button(Renderer* renderer, const char* text, i
     return btn;
 }
 
+static lv_obj_t* lvgl_renderer_create_text_widget(Renderer* renderer,
+                                                 const char* value,
+                                                 const char* placeholder,
+                                                 int x,
+                                                 int y,
+                                                 int width,
+                                                 int height,
+                                                 bool multiline) {
+    if (!renderer || !renderer->platform_data) return NULL;
+    lv_obj_t* parent = (lv_obj_t*)renderer->platform_data;
+    lv_obj_t* textarea = lv_textarea_create(parent);
+    lv_obj_set_pos(textarea, x, y);
+    lv_obj_set_size(textarea,
+                    width > 0 ? width : (multiline ? 300 : 220),
+                    height > 0 ? height : (multiline ? 120 : 40));
+    lv_textarea_set_one_line(textarea, !multiline);
+    lv_textarea_set_text(textarea, value ? value : "");
+    if (placeholder && placeholder[0] != '\0') {
+        lv_textarea_set_placeholder_text(textarea, placeholder);
+    }
+    lv_textarea_set_scrollbar_mode(textarea, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_pad_all(textarea, 6, 0);
+    lv_obj_set_style_bg_color(textarea, lv_color_hex(0x141414), 0);
+    lv_obj_set_style_bg_opa(textarea, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(textarea, lv_color_hex(0x30363D), 0);
+    lv_obj_set_style_border_width(textarea, 1, 0);
+    return textarea;
+}
+
+static void* lvgl_renderer_create_text_input(Renderer* renderer,
+                                             const char* value,
+                                             const char* placeholder,
+                                             int x,
+                                             int y,
+                                             int width,
+                                             int height) {
+    return lvgl_renderer_create_text_widget(renderer, value, placeholder, x, y, width, height, false);
+}
+
+static void* lvgl_renderer_create_text_area(Renderer* renderer,
+                                            const char* value,
+                                            int x,
+                                            int y,
+                                            int width,
+                                            int height) {
+    return lvgl_renderer_create_text_widget(renderer, value, NULL, x, y, width, height, true);
+}
+
 static void* lvgl_renderer_create_container(Renderer* renderer, int x, int y, int width, int height) {
     lv_obj_t* container = lv_obj_create((lv_obj_t*)renderer->platform_data);
     lv_obj_set_pos(container, x, y);
@@ -103,6 +151,33 @@ static void lvgl_renderer_set_text_color(Renderer* renderer, void* widget, uint3
 static void lvgl_renderer_set_bg_color(Renderer* renderer, void* widget, uint32_t color) {
     lv_obj_set_style_bg_color((lv_obj_t*)widget, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa((lv_obj_t*)widget, LV_OPA_COVER, 0);
+}
+
+static lv_grad_dir_t lvgl_renderer_gradient_dir(float angle_deg) {
+    float normalized = angle_deg;
+    while (normalized < 0.0f) normalized += 360.0f;
+    while (normalized >= 360.0f) normalized -= 360.0f;
+
+    if ((normalized >= 45.0f && normalized < 135.0f) ||
+        (normalized >= 225.0f && normalized < 315.0f)) {
+        return LV_GRAD_DIR_HOR;
+    }
+    return LV_GRAD_DIR_VER;
+}
+
+static void lvgl_renderer_set_bg_gradient(Renderer* renderer, void* widget, const LinearGradientFill* gradient) {
+    (void)renderer;
+    if (!widget || !gradient || gradient->stop_count == 0) return;
+
+    lv_obj_t* obj = (lv_obj_t*)widget;
+    uint32_t start_color = gradient->stops[0].color;
+    uint32_t end_color = gradient->stops[gradient->stop_count - 1].color;
+    lv_obj_set_style_bg_color(obj, lv_color_hex(start_color), 0);
+    lv_obj_set_style_bg_grad_color(obj, lv_color_hex(end_color), 0);
+    lv_obj_set_style_bg_grad_dir(obj, lvgl_renderer_gradient_dir(gradient->angle_deg), 0);
+    lv_obj_set_style_bg_main_stop(obj, 0, 0);
+    lv_obj_set_style_bg_grad_stop(obj, 255, 0);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
 }
 
 static void lvgl_renderer_set_text_align(Renderer* renderer, void* widget, int align) {
@@ -129,10 +204,13 @@ LvglRenderer* lvgl_renderer_create(void) {
     renderer->base.cleanup = lvgl_renderer_cleanup;
     renderer->base.create_label = lvgl_renderer_create_label;
     renderer->base.create_button = lvgl_renderer_create_button;
+    renderer->base.create_text_input = lvgl_renderer_create_text_input;
+    renderer->base.create_text_area = lvgl_renderer_create_text_area;
     renderer->base.register_link_handler = NULL;
     renderer->base.create_container = lvgl_renderer_create_container;
     renderer->base.set_text_color = lvgl_renderer_set_text_color;
     renderer->base.set_bg_color = lvgl_renderer_set_bg_color;
+    renderer->base.set_bg_gradient = lvgl_renderer_set_bg_gradient;
     renderer->base.set_text_align = lvgl_renderer_set_text_align;
     renderer->base.clear_container = lvgl_renderer_clear_container;
     renderer->base.get_height = lvgl_renderer_get_height;

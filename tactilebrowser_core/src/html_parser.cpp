@@ -188,7 +188,19 @@ ElementType get_element_type_from_element(lxb_dom_element_t* element) {
         case LXB_TAG_P: return ELEMENT_PARAGRAPH;
         case LXB_TAG_A: return ELEMENT_LINK;
         case LXB_TAG_BUTTON: return ELEMENT_BUTTON;
+        case LXB_TAG_INPUT: return ELEMENT_INPUT_TEXT;
+        case LXB_TAG_TEXTAREA: return ELEMENT_TEXTAREA;
         case LXB_TAG_DIV: return ELEMENT_DIV;
+        case LXB_TAG_BODY:
+        case LXB_TAG_MAIN:
+        case LXB_TAG_SECTION:
+        case LXB_TAG_ARTICLE:
+        case LXB_TAG_HEADER:
+        case LXB_TAG_FOOTER:
+        case LXB_TAG_NAV:
+        case LXB_TAG_ASIDE:
+        case LXB_TAG_HTML:
+            return ELEMENT_CONTAINER;
         case LXB_TAG_SPAN: return ELEMENT_SPAN;
         case LXB_TAG_STRONG: return ELEMENT_STRONG;
         case LXB_TAG_EM: return ELEMENT_EM;

@@ -26,6 +26,9 @@ const char* css_parser_get_declarations(const char* selector, size_t length);
 // Parse inline style attribute and apply to widget
 void css_parser_parse_inline_style(const char* style, RenderContext* context, void* widget);
 
+// Parse a CSS color value using Lexbor (supports named colors, rgb(), etc.)
+bool css_parser_parse_color_value(const char* value, uint32_t* color_out);
+
 #ifdef __cplusplus
 }
 #endif

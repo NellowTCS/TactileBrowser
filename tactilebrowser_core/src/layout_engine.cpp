@@ -21,12 +21,176 @@ static const LayoutBox DEFAULT_BOX = {
     .is_inline_block = false,
     .color = 0xFFFFFF,
     .bg_color = 0x000000,
+    .has_explicit_color = false,
+    .has_explicit_bg_color = false,
+    .background = {
+        .type = BACKGROUND_FILL_NONE
+    },
     .font_size = 14,
     .line_height = 20,
     .text_align = 0,
     .scroll_y = false,
     .scroll_x = false
 };
+
+static char* trim_whitespace_inplace(char* str) {
+    if (!str) return NULL;
+    while (*str && isspace((unsigned char)*str)) {
+        str++;
+    }
+    char* end = str + strlen(str);
+    while (end > str && isspace((unsigned char)*(end - 1))) {
+        *(--end) = '\0';
+    }
+    return str;
+}
+
+static bool layout_parse_css_color(const char* value, uint32_t* color) {
+    if (!value || !color) return false;
+    return css_parser_parse_color_value(value, color);
+}
+
+static bool parse_angle_keyword(const char* token, float* angle_deg) {
+    if (!token || !angle_deg) return false;
+    char* copy = safe_strdup(token);
+    if (!copy) return false;
+    char* trimmed = trim_whitespace_inplace(copy);
+    for (char* c = trimmed; *c; ++c) {
+        *c = (char)tolower((unsigned char)*c);
+    }
+
+    bool handled = false;
+    if (strstr(trimmed, "deg")) {
+        double value = atof(trimmed);
+        *angle_deg = (float)value;
+        handled = true;
+    } else if (strncmp(trimmed, "to ", 3) == 0) {
+        bool to_top = strstr(trimmed, "top") != NULL;
+        bool to_bottom = strstr(trimmed, "bottom") != NULL;
+        bool to_left = strstr(trimmed, "left") != NULL;
+        bool to_right = strstr(trimmed, "right") != NULL;
+        if (to_top && to_right) {
+            *angle_deg = 45.0f;
+            handled = true;
+        } else if (to_top && to_left) {
+            *angle_deg = 315.0f;
+            handled = true;
+        } else if (to_bottom && to_right) {
+            *angle_deg = 135.0f;
+            handled = true;
+        } else if (to_bottom && to_left) {
+            *angle_deg = 225.0f;
+            handled = true;
+        } else if (to_top) {
+            *angle_deg = 0.0f;
+            handled = true;
+        } else if (to_right) {
+            *angle_deg = 90.0f;
+            handled = true;
+        } else if (to_bottom) {
+            *angle_deg = 180.0f;
+            handled = true;
+        } else if (to_left) {
+            *angle_deg = 270.0f;
+            handled = true;
+        }
+    }
+
+    free(copy);
+    return handled;
+}
+
+static bool parse_gradient_color_token(const char* token, uint32_t* color) {
+    if (!token || !color) return false;
+    char* copy = safe_strdup(token);
+    if (!copy) return false;
+    char* trimmed = trim_whitespace_inplace(copy);
+    bool parsed = css_parser_parse_color_value(trimmed, color);
+    if (!parsed) {
+        char* last_space = strrchr(trimmed, ' ');
+        if (last_space) {
+            *last_space = '\0';
+            parsed = css_parser_parse_color_value(trimmed, color);
+        }
+    }
+    free(copy);
+    return parsed;
+}
+
+static bool layout_parse_linear_gradient(const char* value, LinearGradientFill* gradient) {
+    if (!value || !gradient) return false;
+    const char* keyword = strstr(value, "linear-gradient");
+    if (!keyword) return false;
+    const char* open = strchr(keyword, '(');
+    const char* close = strrchr(keyword, ')');
+    if (!open || !close || close <= open) return false;
+
+    char* inner = safe_strndup(open + 1, (size_t)(close - open - 1));
+    if (!inner) return false;
+
+    float angle = 180.0f;
+    uint32_t colors[TACTILEBROWSER_MAX_GRADIENT_STOPS] = {0};
+    size_t stop_count = 0;
+
+    char* saveptr = NULL;
+    char* token = strtok_r(inner, ",", &saveptr);
+    while (token && stop_count < TACTILEBROWSER_MAX_GRADIENT_STOPS) {
+        char* trimmed = trim_whitespace_inplace(token);
+        if (*trimmed == '\0') {
+            token = strtok_r(NULL, ",", &saveptr);
+            continue;
+        }
+
+        if (stop_count == 0) {
+            float parsed_angle = 0.0f;
+            if (parse_angle_keyword(trimmed, &parsed_angle)) {
+                angle = parsed_angle;
+                token = strtok_r(NULL, ",", &saveptr);
+                continue;
+            }
+        }
+
+        uint32_t color = 0;
+        if (parse_gradient_color_token(trimmed, &color)) {
+            colors[stop_count++] = color;
+        }
+
+        token = strtok_r(NULL, ",", &saveptr);
+    }
+
+    free(inner);
+
+    if (stop_count < 2) {
+        return false;
+    }
+
+    gradient->angle_deg = angle;
+    gradient->stop_count = stop_count;
+    for (size_t i = 0; i < stop_count; ++i) {
+        gradient->stops[i].color = colors[i];
+        gradient->stops[i].position = (stop_count == 1) ? 0.0f : (float)i / (float)(stop_count - 1);
+    }
+
+    return true;
+}
+
+static void layout_apply_background_fill(RenderInterface* iface,
+                                         Renderer* renderer,
+                                         LayoutBox* box,
+                                         void* widget) {
+    if (!iface || !renderer || !box || !widget) return;
+
+    if (box->background.type == BACKGROUND_FILL_LINEAR_GRADIENT &&
+        box->background.data.linear.stop_count > 0) {
+        if (iface->set_bg_gradient) {
+            iface->set_bg_gradient(renderer, widget, &box->background.data.linear);
+        } else if (iface->set_bg_color) {
+            iface->set_bg_color(renderer, widget, box->background.data.linear.stops[0].color);
+        }
+    } else if (box->has_explicit_bg_color && iface->set_bg_color) {
+        iface->set_bg_color(renderer, widget, box->bg_color);
+    }
+}
 
 // Initialize layout engine
 bool layout_engine_init(void) {
@@ -124,7 +288,23 @@ LayoutNode* layout_node_create(ElementType type) {
             node->box.margin = (BoxSpacing){4, 4, 4, 4};
             node->box.is_inline_block = true;
             break;
-            
+        case ELEMENT_INPUT_TEXT:
+            node->box.padding = (BoxSpacing){6, 10, 6, 10};
+            node->box.margin = (BoxSpacing){6, 6, 6, 6};
+            node->box.is_inline_block = true;
+            node->box.width = 240;
+            node->box.width_auto = false;
+            node->box.height = 32;
+            node->box.height_auto = false;
+            break;
+        case ELEMENT_TEXTAREA:
+            node->box.padding = (BoxSpacing){8, 8, 8, 8};
+            node->box.margin = (BoxSpacing){8, 0, 8, 0};
+            node->box.is_block = true;
+            node->box.width_auto = true;
+            node->box.height = 120;
+            node->box.height_auto = false;
+            break;   
         case ELEMENT_BREAK:
             node->box.is_block = true;
             node->box.height = 10;
@@ -161,6 +341,10 @@ void layout_node_destroy(LayoutNode* node) {
     
     free(node->text_content);
     free(node->href);
+    free(node->href_resolved);
+    free(node->href_path);
+    free(node->form_value);
+    free(node->placeholder);
     free(node);
 }
 
@@ -311,6 +495,34 @@ void layout_apply_css_property(LayoutBox* box, const char* property, const char*
             box->text_align = 2;
         } else {
             box->text_align = 0;
+        }
+    } else if (strcmp(property, "color") == 0) {
+        uint32_t parsed = 0;
+        if (layout_parse_css_color(value, &parsed)) {
+            box->color = parsed;
+            box->has_explicit_color = true;
+        }
+    } else if (strcmp(property, "background") == 0 || strcmp(property, "background-image") == 0) {
+        LinearGradientFill gradient = {0};
+        if (layout_parse_linear_gradient(value, &gradient)) {
+            box->background.type = BACKGROUND_FILL_LINEAR_GRADIENT;
+            box->background.data.linear = gradient;
+            box->bg_color = gradient.stops[0].color;
+            box->has_explicit_bg_color = true;
+        } else {
+            uint32_t parsed = 0;
+            if (layout_parse_css_color(value, &parsed)) {
+                box->bg_color = parsed;
+                box->has_explicit_bg_color = true;
+                box->background.type = BACKGROUND_FILL_SOLID;
+            }
+        }
+    } else if (strcmp(property, "background-color") == 0) {
+        uint32_t parsed = 0;
+        if (layout_parse_css_color(value, &parsed)) {
+            box->bg_color = parsed;
+            box->has_explicit_bg_color = true;
+            box->background.type = BACKGROUND_FILL_SOLID;
         }
     }
 }
@@ -511,7 +723,29 @@ void layout_render_tree(LayoutNode* root, RenderContext* render_ctx) {
     // Create widget based on node type
     RenderInterface* iface = render_ctx->renderer->interface;
     
-    if (node->text_content && strlen(node->text_content) > 0) {
+    const char* form_value = node->form_value ? node->form_value : "";
+    const char* placeholder = node->placeholder ? node->placeholder : NULL;
+
+    if (node->type == ELEMENT_INPUT_TEXT && iface->create_text_input) {
+        node->widget = iface->create_text_input(render_ctx->renderer,
+                                               form_value,
+                                               placeholder,
+                                               node->box.x,
+                                               node->box.y,
+                                               node->box.width,
+                                               node->box.height);
+        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, node->widget);
+    }
+    else if (node->type == ELEMENT_TEXTAREA && iface->create_text_area) {
+        node->widget = iface->create_text_area(render_ctx->renderer,
+                                              form_value,
+                                              node->box.x,
+                                              node->box.y,
+                                              node->box.width,
+                                              node->box.height);
+        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, node->widget);
+    }
+    else if (node->text_content && strlen(node->text_content) > 0) {
         if (node->type == ELEMENT_BUTTON && iface->create_button) {
             node->widget = iface->create_button(render_ctx->renderer, 
                                                node->text_content,
@@ -528,10 +762,15 @@ void layout_render_tree(LayoutNode* root, RenderContext* render_ctx) {
         if (node->widget && iface->set_text_color) {
             iface->set_text_color(render_ctx->renderer, node->widget, node->box.color);
         }
+        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, node->widget);
         
         // Register link handler
-        if (node->type == ELEMENT_LINK && node->href && iface->register_link_handler) {
-            iface->register_link_handler(render_ctx->renderer, node->widget, node->href);
+        if (node->type == ELEMENT_LINK && iface->register_link_handler) {
+            const char* link_target = node->href_path ? node->href_path
+                                       : (node->href_resolved ? node->href_resolved : node->href);
+            if (link_target && link_target[0] != '\0') {
+                iface->register_link_handler(render_ctx->renderer, node->widget, link_target);
+            }
         }
     } else if (node->type == ELEMENT_DIV || node->type == ELEMENT_CONTAINER) {
         if (iface->create_container) {
@@ -541,6 +780,7 @@ void layout_render_tree(LayoutNode* root, RenderContext* render_ctx) {
                                                    node->box.width,
                                                    node->box.height);
         }
+        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, node->widget);
     }
     
     // Render children

@@ -50,6 +50,47 @@ static bool rel_contains_stylesheet(const char* rel, size_t length) {
     return is_stylesheet;
 }
 
+static void parse_and_apply_css_block(LayoutBox* target_box, char* declarations) {
+    if (!target_box || !declarations) return;
+
+    char* saveptr = NULL;
+    char* property = strtok_r(declarations, ";", &saveptr);
+    while (property) {
+        char* colon = strchr(property, ':');
+        if (colon) {
+            *colon = '\0';
+            char* prop_name = property;
+            char* prop_value = colon + 1;
+
+            while (*prop_name && isspace((unsigned char)*prop_name)) prop_name++;
+            while (*prop_value && isspace((unsigned char)*prop_value)) prop_value++;
+
+            char* prop_end = prop_name + strlen(prop_name);
+            while (prop_end > prop_name && isspace((unsigned char)*(prop_end - 1))) {
+                *(--prop_end) = '\0';
+            }
+
+            char* val_end = prop_value + strlen(prop_value);
+            while (val_end > prop_value && isspace((unsigned char)*(val_end - 1))) {
+                *(--val_end) = '\0';
+            }
+
+            if (*prop_name && *prop_value) {
+                layout_apply_css_property(target_box, prop_name, prop_value);
+            }
+        }
+        property = strtok_r(NULL, ";", &saveptr);
+    }
+}
+
+static void apply_css_block(LayoutBox* target_box, const char* declarations) {
+    if (!target_box || !declarations) return;
+    char* copy = safe_strdup(declarations);
+    if (!copy) return;
+    parse_and_apply_css_block(target_box, copy);
+    free(copy);
+}
+
 // Helper: Import external stylesheet
 static void import_external_stylesheet(const char* href, size_t href_len, const char* base_url) {
     if (!href || href_len == 0 || !html_parser.download_html) return;
@@ -155,6 +196,38 @@ static LayoutNode* build_layout_tree_from_dom(lxb_dom_node_t* dom_node, RenderCo
                 (tag_len == 5 && strncmp(tag, "style", 5) == 0))) {
         return NULL;
     }
+
+    if (elem_type == ELEMENT_INPUT_TEXT) {
+        bool treat_as_text_input = true;
+        bool convert_to_button = false;
+        size_t type_len = 0;
+        const char* type_attr = html_parser.get_element_attr(element, "type", &type_len);
+        if (type_attr && type_len > 0) {
+            char* lowered = safe_strndup(type_attr, type_len);
+            if (lowered) {
+                for (size_t i = 0; i < type_len; ++i) {
+                    lowered[i] = (char)tolower((unsigned char)lowered[i]);
+                }
+                if (strcmp(lowered, "text") == 0 || strcmp(lowered, "search") == 0 ||
+                    strcmp(lowered, "url") == 0 || strcmp(lowered, "email") == 0 ||
+                    strcmp(lowered, "password") == 0 || strcmp(lowered, "tel") == 0) {
+                    treat_as_text_input = true;
+                } else if (strcmp(lowered, "submit") == 0 || strcmp(lowered, "button") == 0) {
+                    convert_to_button = true;
+                    treat_as_text_input = false;
+                } else {
+                    treat_as_text_input = false;
+                }
+                free(lowered);
+            }
+        }
+
+        if (!treat_as_text_input && convert_to_button) {
+            elem_type = ELEMENT_BUTTON;
+        } else if (!treat_as_text_input) {
+            return NULL;
+        }
+    }
     
     // Create layout node
     LayoutNode* layout_node = layout_node_create(elem_type);
@@ -181,6 +254,10 @@ static LayoutNode* build_layout_tree_from_dom(lxb_dom_node_t* dom_node, RenderCo
         case ELEMENT_LIST_ITEM:
             should_extract_text = true;
             break;
+        case ELEMENT_INPUT_TEXT:
+        case ELEMENT_TEXTAREA:
+            should_extract_text = false;
+            break;
         default:
             break;
     }
@@ -204,6 +281,28 @@ static LayoutNode* build_layout_tree_from_dom(lxb_dom_node_t* dom_node, RenderCo
         }
         free(text);
     }
+
+    if (elem_type == ELEMENT_INPUT_TEXT) {
+        size_t value_len = 0;
+        const char* value_attr = html_parser.get_element_attr(element, "value", &value_len);
+        if (value_attr && value_len > 0) {
+            layout_node->form_value = safe_strndup(value_attr, value_len);
+        }
+
+        size_t placeholder_len = 0;
+        const char* placeholder_attr = html_parser.get_element_attr(element, "placeholder", &placeholder_len);
+        if (placeholder_attr && placeholder_len > 0) {
+            layout_node->placeholder = safe_strndup(placeholder_attr, placeholder_len);
+        }
+    } else if (elem_type == ELEMENT_TEXTAREA) {
+        size_t area_len = 0;
+        char* textarea_text = html_parser.get_element_text(element, &area_len);
+        if (textarea_text && area_len > 0) {
+            layout_node->form_value = textarea_text;
+        } else {
+            free(textarea_text);
+        }
+    }
     
     // Extract href for links
     if (elem_type == ELEMENT_LINK) {
@@ -212,9 +311,35 @@ static LayoutNode* build_layout_tree_from_dom(lxb_dom_node_t* dom_node, RenderCo
         if (href_attr && href_len > 0) {
             layout_node->href = safe_strndup(href_attr, href_len);
             layout_node->box.color = 0x0000EE; // Blue for links
+
+            if (layout_node->href) {
+                char* absolute_url = tactilebrowser_resolve_url(context->document_url, layout_node->href);
+                if (absolute_url) {
+                    layout_node->href_resolved = absolute_url;
+                    char* path_only = tactilebrowser_extract_path(absolute_url);
+                    if (path_only) {
+                        layout_node->href_path = path_only;
+                    }
+                }
+            }
         }
     }
     
+    // Apply tag-level selectors
+    if (tag && tag_len > 0) {
+        char* selector = safe_strndup(tag, tag_len);
+        if (selector) {
+            for (size_t i = 0; i < tag_len; ++i) {
+                selector[i] = (char)tolower((unsigned char)selector[i]);
+            }
+            const char* css_block = css_parser_get_declarations(selector, tag_len);
+            if (css_block) {
+                apply_css_block(&layout_node->box, css_block);
+            }
+            free(selector);
+        }
+    }
+
     // Apply CSS classes
     size_t class_len = 0;
     const char* class_attr = html_parser.get_element_attr(element, "class", &class_len);
@@ -234,34 +359,7 @@ static LayoutNode* build_layout_tree_from_dom(lxb_dom_node_t* dom_node, RenderCo
                         
                         const char* css_block = css_parser_get_declarations(selector, selector_len);
                         if (css_block) {
-                            // Parse CSS declarations and apply to layout box
-                            char* css_copy = safe_strdup(css_block);
-                            if (css_copy) {
-                                char* prop_saveptr = NULL;
-                                char* property = strtok_r(css_copy, ";", &prop_saveptr);
-                                while (property) {
-                                    char* colon = strchr(property, ':');
-                                    if (colon) {
-                                        *colon = '\0';
-                                        char* prop_name = property;
-                                        char* prop_value = colon + 1;
-                                        
-                                        // Trim whitespace
-                                        while (*prop_name && isspace((unsigned char)*prop_name)) prop_name++;
-                                        while (*prop_value && isspace((unsigned char)*prop_value)) prop_value++;
-                                        
-                                        char* prop_end = prop_name + strlen(prop_name) - 1;
-                                        while (prop_end > prop_name && isspace((unsigned char)*prop_end)) *prop_end-- = '\0';
-                                        
-                                        char* val_end = prop_value + strlen(prop_value) - 1;
-                                        while (val_end > prop_value && isspace((unsigned char)*val_end)) *val_end-- = '\0';
-                                        
-                                        layout_apply_css_property(&layout_node->box, prop_name, prop_value);
-                                    }
-                                    property = strtok_r(NULL, ";", &prop_saveptr);
-                                }
-                                free(css_copy);
-                            }
+                            apply_css_block(&layout_node->box, css_block);
                         }
                         free(selector);
                     }
@@ -271,6 +369,23 @@ static LayoutNode* build_layout_tree_from_dom(lxb_dom_node_t* dom_node, RenderCo
             free(classes);
         }
     }
+
+    // Apply ID selector
+    size_t id_len = 0;
+    const char* id_attr = html_parser.get_element_attr(element, "id", &id_len);
+    if (id_attr && id_len > 0) {
+        char* selector = (char*)malloc(id_len + 2);
+        if (selector) {
+            selector[0] = '#';
+            memcpy(selector + 1, id_attr, id_len);
+            selector[id_len + 1] = '\0';
+            const char* css_block = css_parser_get_declarations(selector, id_len + 1);
+            if (css_block) {
+                apply_css_block(&layout_node->box, css_block);
+            }
+            free(selector);
+        }
+    }
     
     // Apply inline styles
     size_t style_len = 0;
@@ -278,35 +393,15 @@ static LayoutNode* build_layout_tree_from_dom(lxb_dom_node_t* dom_node, RenderCo
     if (style_attr && style_len > 0) {
         char* style_copy = safe_strndup(style_attr, style_len);
         if (style_copy) {
-            char* saveptr = NULL;
-            char* property = strtok_r(style_copy, ";", &saveptr);
-            while (property) {
-                char* colon = strchr(property, ':');
-                if (colon) {
-                    *colon = '\0';
-                    char* prop_name = property;
-                    char* prop_value = colon + 1;
-                    
-                    // Trim whitespace
-                    while (*prop_name && isspace((unsigned char)*prop_name)) prop_name++;
-                    while (*prop_value && isspace((unsigned char)*prop_value)) prop_value++;
-                    
-                    char* prop_end = prop_name + strlen(prop_name) - 1;
-                    while (prop_end > prop_name && isspace((unsigned char)*prop_end)) *prop_end-- = '\0';
-                    
-                    char* val_end = prop_value + strlen(prop_value) - 1;
-                    while (val_end > prop_value && isspace((unsigned char)*val_end)) *val_end-- = '\0';
-                    
-                    layout_apply_css_property(&layout_node->box, prop_name, prop_value);
-                }
-                property = strtok_r(NULL, ";", &saveptr);
-            }
+            parse_and_apply_css_block(&layout_node->box, style_copy);
             free(style_copy);
         }
     }
     
     // Process children (if we didn't extract text or text is empty)
-    if (!should_extract_text || !layout_node->text_content || layout_node->text_content[0] == '\0') {
+    bool allow_children = (elem_type != ELEMENT_INPUT_TEXT && elem_type != ELEMENT_TEXTAREA);
+
+    if (allow_children && (!should_extract_text || !layout_node->text_content || layout_node->text_content[0] == '\0')) {
         lxb_dom_node_t* child = html_parser.get_first_child(dom_node);
         while (child) {
             LayoutNode* child_layout = build_layout_tree_from_dom(child, context);

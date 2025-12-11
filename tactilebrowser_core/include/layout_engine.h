@@ -38,6 +38,9 @@ typedef struct {
     // Text properties
     uint32_t color;
     uint32_t bg_color;
+    bool has_explicit_color;
+    bool has_explicit_bg_color;
+    BackgroundFill background;
     int font_size;
     int line_height;
     int text_align;     // 0=left, 1=center, 2=right
@@ -54,6 +57,10 @@ typedef struct LayoutNode {
     
     char* text_content;
     char* href;         // For links
+    char* href_resolved;
+    char* href_path;
+    char* form_value;   // For inputs/textarea
+    char* placeholder;  // For inputs
     
     void* widget;       // Platform widget
     

@@ -29,6 +29,44 @@ struct LabelSelectionState {
 };
 static std::unordered_map<lv_obj_t*, LabelSelectionState> label_selection_states;
 
+static bool has_http_scheme(const char* url) {
+    if (!url) return false;
+    return strncmp(url, "http://", 7) == 0 || strncmp(url, "https://", 8) == 0;
+}
+
+static std::string extract_origin_from_url(const char* url) {
+    if (!url || url[0] == '\0') return "";
+    std::string value(url);
+    size_t scheme_pos = value.find("://");
+    if (scheme_pos == std::string::npos) return "";
+    size_t host_start = scheme_pos + 3;
+    size_t path_pos = value.find('/', host_start);
+    if (path_pos == std::string::npos) {
+        return value;
+    }
+    return value.substr(0, path_pos);
+}
+
+static std::string resolve_relative_url(const char* candidate, const char* base_url) {
+    if (!candidate || candidate[0] == '\0') return "";
+    if (has_http_scheme(candidate)) {
+        return std::string(candidate);
+    }
+
+    if (candidate[0] == '/') {
+        if (!base_url || base_url[0] == '\0') {
+            return "";
+        }
+        std::string origin = extract_origin_from_url(base_url);
+        if (origin.empty()) {
+            return "";
+        }
+        return origin + candidate;
+    }
+
+    return std::string(candidate);
+}
+
 extern "C" void load_url(const char* url);
 
 static bool label_index_from_event(lv_obj_t* label, lv_event_t* event, uint32_t* out_index) {
@@ -131,6 +169,48 @@ static lv_obj_t* resolve_target(Renderer* renderer) {
     return lv_screen_active();
 }
 
+static lv_obj_t* lvgl_create_text_widget(Renderer* renderer,
+                                         const char* value,
+                                         const char* placeholder,
+                                         int x,
+                                         int y,
+                                         int width,
+                                         int height,
+                                         bool multiline) {
+    lv_obj_t* parent = resolve_target(renderer);
+    if (!parent) return nullptr;
+
+    lv_obj_t* textarea = lv_textarea_create(parent);
+    lv_obj_set_pos(textarea, x, y);
+    lv_obj_set_size(textarea,
+                    width > 0 ? width : (multiline ? 320 : 240),
+                    height > 0 ? height : (multiline ? 120 : 40));
+    lv_textarea_set_one_line(textarea, !multiline);
+    lv_textarea_set_text(textarea, value ? value : "");
+    if (placeholder && placeholder[0] != '\0') {
+        lv_textarea_set_placeholder_text(textarea, placeholder);
+    }
+    lv_obj_set_scrollbar_mode(textarea, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_bg_color(textarea, lv_color_hex(0x141414), 0);
+    lv_obj_set_style_bg_opa(textarea, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(textarea, lv_color_hex(0x2D333B), 0);
+    lv_obj_set_style_border_width(textarea, 1, 0);
+    lv_obj_set_style_pad_all(textarea, 6, 0);
+    return textarea;
+}
+
+static lv_grad_dir_t gradient_dir_from_angle(float angle_deg) {
+    float normalized = angle_deg;
+    while (normalized < 0.0f) normalized += 360.0f;
+    while (normalized >= 360.0f) normalized -= 360.0f;
+
+    if ((normalized >= 45.0f && normalized < 135.0f) ||
+        (normalized >= 225.0f && normalized < 315.0f)) {
+        return LV_GRAD_DIR_HOR;
+    }
+    return LV_GRAD_DIR_VER;
+}
+
 static void show_message(const char* text, lv_color_t color) {
     if (!content_area) return;
     lv_obj_clean(content_area);
@@ -169,6 +249,25 @@ static void* lvgl_create_button(Renderer* renderer, const char* text, int x, int
     return btn;
 }
 
+static void* lvgl_create_text_input(Renderer* renderer,
+                                    const char* value,
+                                    const char* placeholder,
+                                    int x,
+                                    int y,
+                                    int width,
+                                    int height) {
+    return lvgl_create_text_widget(renderer, value, placeholder, x, y, width, height, false);
+}
+
+static void* lvgl_create_text_area(Renderer* renderer,
+                                   const char* value,
+                                   int x,
+                                   int y,
+                                   int width,
+                                   int height) {
+    return lvgl_create_text_widget(renderer, value, nullptr, x, y, width, height, true);
+}
+
 static void* lvgl_create_container(Renderer* renderer, int x, int y, int width, int height) {
     lv_obj_t* parent = resolve_target(renderer);
     lv_obj_t* container = lv_obj_create(parent);
@@ -189,6 +288,19 @@ static void lvgl_set_bg_color(Renderer* /*renderer*/, void* widget, uint32_t col
     if (!widget) return;
     lv_obj_t* obj = static_cast<lv_obj_t*>(widget);
     lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
+}
+
+static void lvgl_set_bg_gradient(Renderer* /*renderer*/, void* widget, const LinearGradientFill* gradient) {
+    if (!widget || !gradient || gradient->stop_count == 0) return;
+    lv_obj_t* obj = static_cast<lv_obj_t*>(widget);
+    uint32_t start_color = gradient->stops[0].color;
+    uint32_t end_color = gradient->stops[gradient->stop_count - 1].color;
+    lv_obj_set_style_bg_color(obj, lv_color_hex(start_color), 0);
+    lv_obj_set_style_bg_grad_color(obj, lv_color_hex(end_color), 0);
+    lv_obj_set_style_bg_grad_dir(obj, gradient_dir_from_angle(gradient->angle_deg), 0);
+    lv_obj_set_style_bg_main_stop(obj, 0, 0);
+    lv_obj_set_style_bg_grad_stop(obj, 255, 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
 }
 
@@ -244,10 +356,13 @@ static RenderInterface renderer_iface = {
     lvgl_renderer_cleanup,
     lvgl_create_label,
     lvgl_create_button,
+    lvgl_create_text_input,
+    lvgl_create_text_area,
     lvgl_register_link,
     lvgl_create_container,
     lvgl_set_text_color,
     lvgl_set_bg_color,
+    lvgl_set_bg_gradient,
     lvgl_set_text_align,
     lvgl_clear_container,
     lvgl_get_height,
@@ -273,13 +388,20 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void load_url(const char* url) {
     if (!url) return;
-    strncpy(current_url, url, sizeof(current_url) - 1);
+
+    std::string resolved = resolve_relative_url(url, current_url);
+    if (resolved.empty()) {
+        update_js_status("Unable to resolve relative path", "#FF6B6B");
+        return;
+    }
+
+    strncpy(current_url, resolved.c_str(), sizeof(current_url) - 1);
     current_url[sizeof(current_url) - 1] = '\0';
     EM_ASM({
         if (window.TactileBrowserWasm && typeof window.TactileBrowserWasm.fetchAndRender === 'function') {
             window.TactileBrowserWasm.fetchAndRender(UTF8ToString($0));
         }
-    }, url);
+    }, current_url);
 }
 
 EMSCRIPTEN_KEEPALIVE
