@@ -712,19 +712,25 @@ void layout_position_node(LayoutNode* node, int parent_x, int parent_y) {
     }
 }
 
-// Render layout tree to widgets
-void layout_render_tree(LayoutNode* root, RenderContext* render_ctx) {
-    if (!root || !render_ctx || !render_ctx->renderer) return;
-    
-    // Recursively render nodes
-    LayoutNode* node = root;
-    if (!node) return;
-    
-    // Create widget based on node type
+static void layout_render_node(LayoutNode* node,
+                               RenderContext* render_ctx,
+                               void* parent_widget) {
+    if (!node || !render_ctx || !render_ctx->renderer) return;
+
     RenderInterface* iface = render_ctx->renderer->interface;
-    
+    if (!iface) return;
+
+    Renderer* renderer = render_ctx->renderer;
+    void* parent = parent_widget ? parent_widget : render_ctx->root_container;
+    void* widget = NULL;
+
     const char* form_value = node->form_value ? node->form_value : "";
     const char* placeholder = node->placeholder ? node->placeholder : NULL;
+
+    void* saved_parent = renderer->platform_data;
+    if (parent) {
+        renderer->platform_data = parent;
+    }
 
     if (node->type == ELEMENT_INPUT_TEXT && iface->create_text_input) {
         node->widget = iface->create_text_input(render_ctx->renderer,
@@ -734,7 +740,8 @@ void layout_render_tree(LayoutNode* root, RenderContext* render_ctx) {
                                                node->box.y,
                                                node->box.width,
                                                node->box.height);
-        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, node->widget);
+        widget = node->widget;
+        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, widget);
     }
     else if (node->type == ELEMENT_TEXTAREA && iface->create_text_area) {
         node->widget = iface->create_text_area(render_ctx->renderer,
@@ -743,13 +750,14 @@ void layout_render_tree(LayoutNode* root, RenderContext* render_ctx) {
                                               node->box.y,
                                               node->box.width,
                                               node->box.height);
-        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, node->widget);
+        widget = node->widget;
+        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, widget);
     }
     else if (node->text_content && strlen(node->text_content) > 0) {
         if (node->type == ELEMENT_BUTTON && iface->create_button) {
-            node->widget = iface->create_button(render_ctx->renderer, 
+            node->widget = iface->create_button(render_ctx->renderer,
                                                node->text_content,
-                                               node->box.x, 
+                                               node->box.x,
                                                node->box.y);
         } else if (iface->create_label) {
             node->widget = iface->create_label(render_ctx->renderer,
@@ -757,36 +765,53 @@ void layout_render_tree(LayoutNode* root, RenderContext* render_ctx) {
                                               node->box.x,
                                               node->box.y);
         }
-        
-        // Apply colors
-        if (node->widget && iface->set_text_color) {
-            iface->set_text_color(render_ctx->renderer, node->widget, node->box.color);
+
+        widget = node->widget;
+
+        if (widget && iface->set_text_color) {
+            iface->set_text_color(render_ctx->renderer, widget, node->box.color);
         }
-        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, node->widget);
-        
-        // Register link handler
-        if (node->type == ELEMENT_LINK && iface->register_link_handler) {
+        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, widget);
+
+        if (widget && node->type == ELEMENT_LINK && iface->register_link_handler) {
             const char* link_target = node->href_path ? node->href_path
                                        : (node->href_resolved ? node->href_resolved : node->href);
             if (link_target && link_target[0] != '\0') {
-                iface->register_link_handler(render_ctx->renderer, node->widget, link_target);
+                iface->register_link_handler(render_ctx->renderer, widget, link_target);
             }
         }
-    } else if (node->type == ELEMENT_DIV || node->type == ELEMENT_CONTAINER) {
-        if (iface->create_container) {
+    }
+    else if (node->type == ELEMENT_DIV || node->type == ELEMENT_CONTAINER) {
+        bool reuse_parent = (node->parent == NULL && parent == render_ctx->root_container);
+        if (reuse_parent) {
+            node->widget = parent;
+        } else if (iface->create_container) {
             node->widget = iface->create_container(render_ctx->renderer,
                                                    node->box.x,
                                                    node->box.y,
                                                    node->box.width,
                                                    node->box.height);
         }
-        layout_apply_background_fill(iface, render_ctx->renderer, &node->box, node->widget);
+
+        widget = node->widget;
+        if (widget) {
+            layout_apply_background_fill(iface, render_ctx->renderer, &node->box, widget);
+        }
     }
-    
-    // Render children
+
+    renderer->platform_data = saved_parent;
+
+    void* next_parent = widget ? widget : parent;
+
     LayoutNode* child = node->first_child;
     while (child) {
-        layout_render_tree(child, render_ctx);
+        layout_render_node(child, render_ctx, next_parent);
         child = child->next_sibling;
     }
+}
+
+// Render layout tree to widgets
+void layout_render_tree(LayoutNode* root, RenderContext* render_ctx) {
+    if (!root || !render_ctx) return;
+    layout_render_node(root, render_ctx, render_ctx->root_container);
 }

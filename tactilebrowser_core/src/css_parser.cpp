@@ -14,6 +14,7 @@
 
 // Static parser instance for stylesheet parsing
 static lxb_css_parser_t* css_parser = NULL;
+static lxb_css_memory_t* css_memory = NULL;
 typedef struct CssRuleEntry {
     char* selector;
     size_t length;
@@ -34,6 +35,23 @@ static void css_rules_clear(void) {
         entry = next;
     }
     css_rules_head = NULL;
+}
+
+static bool css_parser_prepare_memory(void) {
+    if (!css_memory) {
+        css_memory = lxb_css_memory_create();
+        if (!css_memory) {
+            return false;
+        }
+        if (lxb_css_memory_init(css_memory, 128) != LXB_STATUS_OK) {
+            lxb_css_memory_destroy(css_memory, true);
+            css_memory = NULL;
+            return false;
+        }
+    } else {
+        lxb_css_memory_clean(css_memory);
+    }
+    return true;
 }
 
 static char* copy_trimmed_range(const char* start, const char* end) {
@@ -222,6 +240,10 @@ void css_parser_cleanup(void) {
         lxb_css_parser_destroy(css_parser, true);
         css_parser = NULL;
     }
+    if (css_memory) {
+        lxb_css_memory_destroy(css_memory, true);
+        css_memory = NULL;
+    }
 }
 
 void css_parser_add_stylesheet(const char* css, size_t length) {
@@ -367,6 +389,10 @@ bool css_parser_parse_color_value(const char* value, uint32_t* color_out) {
         return false;
     }
 
+    if (!css_parser_prepare_memory()) {
+        return false;
+    }
+
     const char* prefix = "color:";
     const char* suffix = ";";
     size_t value_len = strlen(value);
@@ -381,7 +407,7 @@ bool css_parser_parse_color_value(const char* value, uint32_t* color_out) {
 
     lxb_css_rule_declaration_list_t* decl_list = lxb_css_declaration_list_parse(
         css_parser,
-        NULL,
+        css_memory,
         (const lxb_char_t*)buffer,
         strlen(buffer)
     );
@@ -389,6 +415,7 @@ bool css_parser_parse_color_value(const char* value, uint32_t* color_out) {
     free(buffer);
 
     if (!decl_list) {
+        lxb_css_memory_clean(css_memory);
         return false;
     }
 
@@ -415,15 +442,20 @@ bool css_parser_parse_color_value(const char* value, uint32_t* color_out) {
     }
 
     lxb_css_rule_declaration_list_destroy(decl_list, true);
+    lxb_css_memory_clean(css_memory);
     return parsed;
 }
 
 void css_parser_parse_inline_style(const char* style, RenderContext* context, void* widget) {
     if (!style || !context || !widget || !css_parser) return;
 
+    if (!css_parser_prepare_memory()) {
+        return;
+    }
+
     // Parse the inline style declarations using Lexbor
     lxb_css_rule_declaration_list_t* decl_list = lxb_css_declaration_list_parse(
-        css_parser, NULL, (const lxb_char_t*)style, strlen(style));
+        css_parser, css_memory, (const lxb_char_t*)style, strlen(style));
 
     if (!decl_list) return;
 
@@ -486,4 +518,5 @@ void css_parser_parse_inline_style(const char* style, RenderContext* context, vo
 
     // Clean up the declaration list
     lxb_css_rule_declaration_list_destroy(decl_list, true);
+    lxb_css_memory_clean(css_memory);
 }
