@@ -731,18 +731,16 @@ void applicationEinkHandler() {
 
 // Setup function
 void setup() {
-  // Configure task watchdog with longer timeout to prevent false triggers during long operations
-  // Using older ESP-IDF API: esp_task_wdt_init(timeout_seconds, panic_on_trigger)
-  esp_task_wdt_deinit();
-  esp_task_wdt_init(30, true);  // 30 second timeout, panic on trigger
-  esp_task_wdt_add(NULL);       // Add current task to watchdog
-
-  setCpuFrequencyMhz(240);
-  PocketMage_INIT();
-
-  esp_task_wdt_reset();
-  BROWSER_INIT();
-  esp_task_wdt_reset();
+    // Configure task watchdog with longer timeout
+    esp_task_wdt_deinit();
+    esp_task_wdt_init(60, true);  // 60 second timeout
+    
+    setCpuFrequencyMhz(240);
+    PocketMage_INIT();
+    
+    esp_task_wdt_reset();
+    BROWSER_INIT();
+    esp_task_wdt_reset();
 }
 
 // Main loop
