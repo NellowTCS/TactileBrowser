@@ -732,16 +732,13 @@ void applicationEinkHandler() {
 
 // Setup function
 void setup() {
-    // Configure task watchdog with longer timeout
     esp_task_wdt_deinit();
-    esp_task_wdt_init(60, true);  // 60 second timeout
-    
+    esp_task_wdt_init(30, true);  // 30 second timeout, panic on trigger
+
     setCpuFrequencyMhz(240);
     PocketMage_INIT();
     
-    esp_task_wdt_reset();
     BROWSER_INIT();
-    esp_task_wdt_reset();
 }
 
 // Main loop
