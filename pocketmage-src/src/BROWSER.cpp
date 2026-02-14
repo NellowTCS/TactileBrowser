@@ -504,6 +504,7 @@ void BROWSER_INIT() {
 
   esp_task_wdt_reset();
   Serial.println("Init: WiFi Service...");
+  Serial.println("New version, not cached");
   P_WIFI.begin();
   P_WIFI.setEventCallback([] {
     newLineAdded = true;
