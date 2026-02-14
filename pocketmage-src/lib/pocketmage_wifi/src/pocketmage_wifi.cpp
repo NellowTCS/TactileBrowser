@@ -215,7 +215,7 @@ void PocketMageWifi::taskLoop() {
                 default: break;
             }
         }
-        Auto-scan/auto-connect if enabled
+        // Auto-scan/auto-connect if enabled
         if (_autoConnectEnabled && _state == WifiRadioState::On) {
             unsigned long now = millis();
             if (now - lastAutoScan > AUTO_SCAN_INTERVAL) {
