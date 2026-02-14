@@ -3,6 +3,7 @@
 #include <pocketmage_wifi.h>
 #include <tactilebrowser_core.h>
 #include <curl/curl.h>
+#include <esp_log.h>
 #include <esp_task_wdt.h>
 // clang-format on
 
@@ -732,6 +733,7 @@ void applicationEinkHandler() {
 
 // Setup function
 void setup() {
+    esp_log_level_set("*", ESP_LOG_INFO);
     esp_task_wdt_deinit();
     esp_task_wdt_init(30, true);  // 30 second timeout, panic on trigger
 
