@@ -749,6 +749,9 @@ void loop() {
   // Check battery
   pocketmage::power::updateBattState();
 
+  // Process WiFi auto-scan/auto-connect
+  P_WIFI.process();
+
   // Run keyboard loop
   processKB();
 

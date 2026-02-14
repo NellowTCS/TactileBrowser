@@ -5,10 +5,6 @@
 #include <esp_event.h>
 #include <esp_netif.h>
 #include <esp_wifi.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/event_groups.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
 
 #include <functional>
 #include <vector>
@@ -42,8 +38,9 @@ class PocketMageWifi {
   // Lifecycle
   void begin();  // Call once at startup to initialize the service
   void stop();   // Call at shutdown to cleanly stop the service
+  void process(); // Call periodically from main loop for auto-scan/connect
 
-  // Control methods (all non-blocking, dispatch to task)
+  // Control methods (blocking - run in caller's context)
   void enable();                                                           // Turn on WiFi radio
   void disable();                                                          // Turn off WiFi radio
   void scan();                                                             // Start a scan
@@ -78,16 +75,12 @@ class PocketMageWifi {
   PocketMageWifi(const PocketMageWifi&) = delete;
   PocketMageWifi& operator=(const PocketMageWifi&) = delete;
 
-  // Task function
-  static void wifiTaskFunc(void* param);
-  void taskLoop();
-
   // ESP event handler
   static void espEventHandler(void* arg, esp_event_base_t base, int32_t id, void* data);
   void handleWifiEvent(int32_t id, void* data);
   void handleIpEvent(int32_t id, void* data);
 
-  // Internal operations (run in task context)
+  // Internal operations
   void doEnable();
   void doDisable();
   void doScan();
@@ -100,18 +93,6 @@ class PocketMageWifi {
   void publishEvent();
   void saveCredentials(const char* ssid, const char* password);
   bool findSavedNetwork(char* ssid, char* password);
-
-  // Command queue types
-  enum class Command : uint8_t {
-    None = 0,
-    Enable,
-    Disable,
-    Scan,
-    Connect,
-    Disconnect,
-    Reconnect,
-    CheckAutoConnect
-  };
 
   // Thread-safe state
   mutable SemaphoreHandle_t _mutex;
@@ -130,11 +111,6 @@ class PocketMageWifi {
   uint16_t _scanResultCount;
   static constexpr uint16_t MAX_SCAN_RESULTS = 20;
 
-  // FreeRTOS handles
-  TaskHandle_t _taskHandle;
-  QueueHandle_t _commandQueue;
-  EventGroupHandle_t _eventGroup;
-
   // ESP handles
   esp_netif_t* _staNetif;
   esp_event_handler_instance_t _wifiEventHandler;
@@ -146,12 +122,6 @@ class PocketMageWifi {
 
   // Event callback
   WifiEventCallback _eventCallback;
-
-  // Event bits
-  static constexpr uint32_t BIT_CONNECTED = BIT0;
-  static constexpr uint32_t BIT_DISCONNECTED = BIT1;
-  static constexpr uint32_t BIT_SCAN_DONE = BIT2;
-  static constexpr uint32_t BIT_CONNECT_FAIL = BIT3;
 
   // Flags
   bool _initialized;

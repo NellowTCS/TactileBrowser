@@ -80,26 +80,11 @@ void PocketMageWifi::begin() {
     Serial.printf("WiFi: _staNetif already exists: %p\n", _staNetif);
   }
   
-  _commandQueue = xQueueCreate(8, sizeof(Command));
-  _eventGroup = xEventGroupCreate();
-  xTaskCreatePinnedToCore(wifiTaskFunc, "pmwifi", 4096, this, 2, &_taskHandle, 0);  // Pin to core 0
   _initialized = true;
   Serial.println("WiFi: begin() complete");
 }
 
 void PocketMageWifi::stop() {
-  if (_taskHandle) {
-    vTaskDelete(_taskHandle);
-    _taskHandle = nullptr;
-  }
-  if (_commandQueue) {
-    vQueueDelete(_commandQueue);
-    _commandQueue = nullptr;
-  }
-  if (_eventGroup) {
-    vEventGroupDelete(_eventGroup);
-    _eventGroup = nullptr;
-  }
   if (_scanResults) {
     free(_scanResults);
     _scanResults = nullptr;
@@ -108,18 +93,15 @@ void PocketMageWifi::stop() {
 }
 
 void PocketMageWifi::enable() {
-  Command cmd = Command::Enable;
-  xQueueSend(_commandQueue, &cmd, 0);
+  doEnable();
 }
 
 void PocketMageWifi::disable() {
-  Command cmd = Command::Disable;
-  xQueueSend(_commandQueue, &cmd, 0);
+  doDisable();
 }
 
 void PocketMageWifi::scan() {
-  Command cmd = Command::Scan;
-  xQueueSend(_commandQueue, &cmd, 0);
+  doScan();
 }
 
 void PocketMageWifi::connect(const char* ssid, const char* password, bool save) {
@@ -128,18 +110,15 @@ void PocketMageWifi::connect(const char* ssid, const char* password, bool save) 
   strncpy(_pendingPassword, password, sizeof(_pendingPassword));
   _pendingSave = save;
   xSemaphoreGiveRecursive(_mutex);
-  Command cmd = Command::Connect;
-  xQueueSend(_commandQueue, &cmd, 0);
+  doConnect();
 }
 
 void PocketMageWifi::disconnect() {
-  Command cmd = Command::Disconnect;
-  xQueueSend(_commandQueue, &cmd, 0);
+  doDisconnect();
 }
 
 void PocketMageWifi::reconnect() {
-  Command cmd = Command::Reconnect;
-  xQueueSend(_commandQueue, &cmd, 0);
+  doAutoConnect();
 }
 
 WifiRadioState PocketMageWifi::getState() const {
@@ -229,57 +208,6 @@ void PocketMageWifi::clearSavedCredentials(const char* ssid) {
 
 void PocketMageWifi::setEventCallback(WifiEventCallback cb) {
   _eventCallback = cb;
-}
-
-void PocketMageWifi::wifiTaskFunc(void* param) {
-  static_cast<PocketMageWifi*>(param)->taskLoop();
-}
-
-void PocketMageWifi::taskLoop() {
-  Command cmd = Command::None;
-  unsigned long lastAutoScan = 0;
-  setStatus("WiFi idle");
-  while (true) {
-    esp_task_wdt_reset();  // Reset watchdog
-    // Wait for command or periodic auto-scan
-    if (xQueueReceive(_commandQueue, &cmd, pdMS_TO_TICKS(200)) == pdTRUE) {
-      switch (cmd) {
-        case Command::Enable:
-          doEnable();
-          break;
-        case Command::Disable:
-          doDisable();
-          break;
-        case Command::Scan:
-          doScan();
-          break;
-        case Command::Connect:
-          doConnect();
-          break;
-        case Command::Disconnect:
-          doDisconnect();
-          break;
-        case Command::Reconnect:
-          doAutoConnect();
-          break;
-        case Command::CheckAutoConnect:
-          doAutoConnect();
-          break;
-        default:
-          break;
-      }
-    }
-    // Auto-scan/auto-connect if enabled
-    if (_autoConnectEnabled && _state == WifiRadioState::On) {
-      unsigned long now = millis();
-      if (now - lastAutoScan > AUTO_SCAN_INTERVAL) {
-        lastAutoScan = now;
-        doScan();
-        doAutoConnect();
-      }
-    }
-    vTaskDelay(10);  // Ensure yielding
-  }
 }
 
 void PocketMageWifi::espEventHandler(void* arg, esp_event_base_t base, int32_t id, void* data) {
@@ -517,6 +445,22 @@ void PocketMageWifi::doAutoConnect() {
     strncpy(_pendingPassword, password, sizeof(_pendingPassword));
     _pendingSave = false;
     doConnect();
+  }
+}
+
+// Call this periodically from the main loop to handle auto-scan/auto-connect
+void PocketMageWifi::process() {
+  if (!_initialized) return;
+  
+  // Auto-scan/auto-connect if enabled
+  if (_autoConnectEnabled && _state == WifiRadioState::On) {
+    unsigned long now = millis();
+    if (now - _lastScanTime > AUTO_SCAN_INTERVAL) {
+      _lastScanTime = now;
+      Serial.println("WiFi: Auto-scan triggered");
+      doScan();
+      // Auto-connect will happen when scan completes (in event handler)
+    }
   }
 }
 
