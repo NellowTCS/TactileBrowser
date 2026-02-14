@@ -172,7 +172,7 @@ static void update_js_status(const char *message, const char *color_hex) {
         const msg = UTF8ToString($0);
         const col = UTF8ToString($1);
         if (window.TactileBrowserWasm &&typeof window.TactileBrowserWasm
-                    .setStatus == = 'function') {
+                    .setStatus === 'function') {
           window.TactileBrowserWasm.setStatus(msg, col);
         }
       },
@@ -423,7 +423,7 @@ void load_url(const char *url) {
   EM_ASM(
       {
         if (window.TactileBrowserWasm &&typeof window.TactileBrowserWasm
-                    .fetchAndRender == = 'function') {
+                    .fetchAndRender === 'function') {
           window.TactileBrowserWasm.fetchAndRender(UTF8ToString($0));
         }
       },

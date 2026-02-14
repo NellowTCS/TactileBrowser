@@ -1,8 +1,10 @@
-#include <curl/curl.h>
-#include <esp_task_wdt.h>
+// clang-format off
 #include <pocketmage.h>
 #include <pocketmage_wifi.h>
 #include <tactilebrowser_core.h>
+#include <curl/curl.h>
+#include <esp_task_wdt.h>
+// clang-format on
 
 static constexpr const char* TAG = "BROWSER";
 

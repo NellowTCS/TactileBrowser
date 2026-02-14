@@ -465,6 +465,7 @@ tactility-src/build/
 
 # Build artifacts - WASM
 wasm-src/build/
+wasm-src/dist/
 
 # SDK installations
 emsdk/
