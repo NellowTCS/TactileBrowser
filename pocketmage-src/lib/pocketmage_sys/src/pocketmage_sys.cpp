@@ -1,4 +1,5 @@
 #include <pocketmage.h>
+#include <pocketmage_wifi.h>
 #include <pocketmage_sys.h>
 #include <pocketmage_eink.h>
 #include <pocketmage_oled.h>

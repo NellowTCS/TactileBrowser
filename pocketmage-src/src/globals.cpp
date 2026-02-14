@@ -145,10 +145,6 @@ volatile bool doFull = false;
 BROWSERState CurrentBROWSERState = BROWSER_VIEW;
 int browserSwitchedStates = 0;
 int refresh_count = 0;
-String wifiSSID = "";
-String wifiPassword = "";
-bool wifiConnected = false;
-String wifiStatusMessage = "Wi-Fi not configured";
 
 // Browser data sources
 FixedArenaSource<512, 16384> browserLines; 

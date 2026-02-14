@@ -10,3 +10,4 @@
 #include <pocketmage_touch.h>
 #include <pocketmage_clock.h>
 #include <pocketmage_sys.h>
+#include <pocketmage_wifi.h>

@@ -27,7 +27,7 @@ void setupEink() {
     NULL,                    // Parameters 
     1,                       // Priority 
     &einkHandlerTaskHandle,  // Task handle
-    0                        // Core ID 
+    1                        // Core ID 
   );
 
 }

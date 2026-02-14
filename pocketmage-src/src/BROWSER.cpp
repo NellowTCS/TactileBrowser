@@ -1,20 +1,17 @@
 #include <pocketmage.h>
+#include <pocketmage_wifi.h>
 #include <curl/curl.h>
 #include <tactilebrowser_core.h>
-#include <esp_wifi.h>
-#include <esp_event.h>
 #include <esp_task_wdt.h>
 
 static constexpr const char* TAG = "BROWSER";
 
 #define MAX_TABS 5
 #define MAX_URL_LENGTH 512
-static Preferences wifiPrefs;
-static constexpr const char* WIFI_PREF_NAMESPACE = "browser";
-static constexpr const char* WIFI_PREF_SSID_KEY = "wifi_ssid";
-static constexpr const char* WIFI_PREF_PASS_KEY = "wifi_pass";
-static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 10000;
-static constexpr uint32_t WIFI_CONNECT_POLL_MS = 250;
+
+// Input buffers
+static String wifiSSIDInput = "";
+static String wifiPasswordInput = "";
 
 // Global variables are defined in globals.cpp
 
@@ -89,123 +86,6 @@ static String maskPasswordForDisplay(const String& value) {
     return masked;
 }
 
-static void loadWifiCredentials() {
-    if (wifiPrefs.begin(WIFI_PREF_NAMESPACE, true)) {  // true = readonly mode for loading
-        wifiSSID = wifiPrefs.getString(WIFI_PREF_SSID_KEY, "");
-        wifiPassword = wifiPrefs.getString(WIFI_PREF_PASS_KEY, "");
-        wifiPrefs.end();
-    } else {
-        wifiSSID = "";
-        wifiPassword = "";
-    }
-
-    wifiConnected = false;
-    if (wifiSSID.length() > 0) {
-        wifiStatusMessage = "Wi-Fi ready for " + wifiSSID;
-    } else {
-        wifiStatusMessage = "Wi-Fi not configured";
-    }
-}
-
-static void saveWifiCredentials() {
-    if (wifiPrefs.begin(WIFI_PREF_NAMESPACE, false)) {
-        wifiPrefs.putString(WIFI_PREF_SSID_KEY, wifiSSID);
-        wifiPrefs.putString(WIFI_PREF_PASS_KEY, wifiPassword);
-        wifiPrefs.end();
-    }
-}
-
-static bool attemptWifiConnection(uint32_t timeoutMs = WIFI_CONNECT_TIMEOUT_MS) {
-    if (wifiSSID.isEmpty()) {
-        wifiStatusMessage = "Enter an SSID first";
-        wifiConnected = false;
-        Serial.println("WiFi: No SSID configured");
-        return false;
-    }
-
-    Serial.printf("WiFi: Attempting connection to '%s'...\n", wifiSSID.c_str());
-    wifiStatusMessage = "Connecting to " + wifiSSID + "...";
-    
-    // Configure WiFi using ESP-IDF API
-    wifi_config_t wifi_config = {};
-    memset(&wifi_config, 0, sizeof(wifi_config_t));
-    
-    strncpy((char*)wifi_config.sta.ssid, wifiSSID.c_str(), sizeof(wifi_config.sta.ssid) - 1);
-    if (wifiPassword.length() > 0) {
-        strncpy((char*)wifi_config.sta.password, wifiPassword.c_str(), sizeof(wifi_config.sta.password) - 1);
-        Serial.println("WiFi: Password configured");
-    } else {
-        Serial.println("WiFi: No password (open network)");
-    }
-    
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    esp_err_t err = esp_wifi_connect();
-    if (err != ESP_OK) {
-        Serial.printf("WiFi: esp_wifi_connect failed: %d\n", err);
-        wifiStatusMessage = "WiFi connect error: " + String(err);
-        wifiConnected = false;
-        return false;
-    }
-
-    unsigned long start = millis();
-    unsigned long lastWdtReset = millis();
-    
-    // Poll for connection status
-    wifi_ap_record_t ap_info;
-    int attempts = 0;
-    while ((millis() - start) < timeoutMs) {
-        // Reset watchdog every second during connection attempt
-        if (millis() - lastWdtReset > 1000) {
-            esp_task_wdt_reset();
-            lastWdtReset = millis();
-            attempts++;
-            Serial.printf("WiFi: Still connecting... (%d sec)\n", attempts);
-        }
-        
-        // Check if connected
-        if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-            wifiConnected = true;
-            wifiStatusMessage = "Connected to " + wifiSSID;
-            Serial.printf("WiFi: Connected! RSSI: %d\n", ap_info.rssi);
-            return true;
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(WIFI_CONNECT_POLL_MS));
-        yield();
-    }
-    
-    // Final reset after connection attempt
-    esp_task_wdt_reset();
-
-    wifiConnected = false;
-    wifiStatusMessage = "WiFi connection timeout";
-    Serial.printf("WiFi: Connection timeout after %lu ms\n", millis() - start);
-    return false;
-}
-
-static bool ensureWifiConnected(bool autoAttempt = true) {
-    wifi_ap_record_t ap_info;
-    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-        wifiConnected = true;
-        wifiStatusMessage = "Connected to " + wifiSSID;
-        return true;
-    }
-
-    wifiConnected = false;
-
-    if (autoAttempt && wifiSSID.length() > 0) {
-        return attemptWifiConnection();
-    }
-
-    if (wifiSSID.length() > 0) {
-        wifiStatusMessage = "Wi-Fi ready for " + wifiSSID;
-    } else {
-        wifiStatusMessage = "Wi-Fi not configured";
-    }
-    return false;
-}
-
 static void update_wifi_display() {
     urlClear();
     switch (CurrentBROWSERState) {
@@ -216,17 +96,18 @@ static void update_wifi_display() {
             break;
         case BROWSER_WIFI_PASSWORD_INPUT:
             urlAppend("Wi-Fi Setup");
-            urlAppend("SSID: " + wifiSSID);
+            urlAppend("SSID: " + wifiSSIDInput);
             urlAppend("Enter password:");
             urlAppend("> " + maskPasswordForDisplay(current_line));
             break;
         case BROWSER_WIFI_STATUS:
             urlAppend("Wi-Fi Status");
-            urlAppend(wifiStatusMessage);
-            if (wifiConnected) {
-                urlAppend("Connected to: " + wifiSSID);
-            } else if (!wifiSSID.isEmpty()) {
-                urlAppend("Target: " + wifiSSID);
+            urlAppend(P_WIFI.getStatusMessage());
+            if (P_WIFI.isConnected()) {
+                urlAppend("Connected to: " + P_WIFI.getConnectedSSID());
+                urlAppend("IP: " + P_WIFI.getIpAddress());
+            } else if (P_WIFI.getConnectedSSID().length() > 0) {
+                urlAppend("Target: " + P_WIFI.getConnectedSSID());
             }
             urlAppend("CR->retry | ESC->back");
             break;
@@ -238,7 +119,8 @@ static void update_wifi_display() {
 static void start_wifi_setup() {
     CurrentBROWSERState = BROWSER_WIFI_SSID_INPUT;
     CurrentFrameState = &urlScreen;
-    current_line = wifiSSID;
+    // Pre-fill with current connected SSID or last target if possible?
+    current_line = P_WIFI.getConnectedSSID(); 
     update_wifi_display();
     newLineAdded = true;
     CurrentKBState = NORMAL;
@@ -303,20 +185,21 @@ bool load_url(const String& url, int tab_index) {
         return false;
     }
 
-    wifi_ap_record_t ap_info;
-    if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
+    if (!P_WIFI.isConnected()) {
         OLED().oledWord("Connecting Wi-Fi...");
-    }
-
-    // Reset watchdog before potentially long WiFi connection
-    esp_task_wdt_reset();
-
-    if (!ensureWifiConnected(true)) {
-        browserAppend("Error: Wi-Fi not connected. Use FN->W to configure.");
-        browserAppend("Note: libcurl_esp32 requires an active Wi-Fi link.");
-        OLED().oledWord("Wi-Fi failed");
-        newLineAdded = true;
-        return false;
+        unsigned long start = millis();
+        while (P_WIFI.getState() == WifiRadioState::Connecting && millis() - start < 5000) {
+             vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        
+        if (!P_WIFI.isConnected()) {
+            browserAppend("Error: Wi-Fi not connected. Use FN->W to configure.");
+            browserAppend("Note: libcurl_esp32 requires an active Wi-Fi link.");
+            browserAppend("Status: " + P_WIFI.getStatusMessage());
+            OLED().oledWord("Wi-Fi failed");
+            newLineAdded = true;
+            return false;
+        }
     }
 
     OLED().oledWord("Loading...");
@@ -356,7 +239,7 @@ bool load_url(const String& url, int tab_index) {
 void update_browser_display() {
     browserClear();
 
-    browserAppend("Wi-Fi: " + wifiStatusMessage);
+    browserAppend("Wi-Fi: " + P_WIFI.getStatusMessage());
     browserAppend("");
     
     if (tabs[active_tab].loaded) {
@@ -521,31 +404,39 @@ void browserCRInput() {
         }
 
         case BROWSER_WIFI_SSID_INPUT:
-            wifiSSID = current_line;
-            wifiSSID.trim();
-            current_line = wifiPassword;
+            wifiSSIDInput = current_line;
+            wifiSSIDInput.trim();
+            current_line = wifiPasswordInput;
             CurrentBROWSERState = BROWSER_WIFI_PASSWORD_INPUT;
             update_wifi_display();
             newLineAdded = true;
             break;
 
         case BROWSER_WIFI_PASSWORD_INPUT:
-            wifiPassword = current_line;
-            saveWifiCredentials();
+            wifiPasswordInput = current_line;
+            // Connect and remember
+            P_WIFI.connect(wifiSSIDInput.c_str(), wifiPasswordInput.c_str(), true);
+            
             CurrentBROWSERState = BROWSER_WIFI_STATUS;
             CurrentFrameState = &urlScreen;
             current_line = "";
             update_wifi_display();
             newLineAdded = true;
-            attemptWifiConnection();
-            update_wifi_display();
             update_browser_display();
             break;
 
         case BROWSER_WIFI_STATUS:
-            attemptWifiConnection();
+            // Retry connection if needed
+            if (!P_WIFI.isConnected()) {
+                if (!wifiSSIDInput.isEmpty()) {
+                   P_WIFI.connect(wifiSSIDInput.c_str(), wifiPasswordInput.c_str(), true);
+                } else if (P_WIFI.getConnectedSSID()[0] != 0) {
+                   // Retry last
+                   P_WIFI.reconnect();
+                }
+            }
             update_wifi_display();
-            if (wifiConnected) {
+            if (P_WIFI.isConnected()) {
                 update_browser_display();
             }
             newLineAdded = true;
@@ -605,21 +496,15 @@ void BROWSER_INIT() {
     Serial.printf("Init: CURL done (%lums)\n", millis() - initStart);
 
     esp_task_wdt_reset();
-    Serial.println("Init: Loading WiFi credentials...");
-    loadWifiCredentials();
-    Serial.printf("Init: WiFi credentials loaded (%lums)\n", millis() - initStart);
-    esp_task_wdt_reset();
+    Serial.println("Init: WiFi Service...");
+    P_WIFI.begin();
+    P_WIFI.setEventCallback([]{ newLineAdded = true; newState = true; doFull = true; });
+    P_WIFI.enable();
+    // Trigger initial scan/autoconnect
+    P_WIFI.scan();
     
-    Serial.println("Init: Setting WiFi mode...");
-    // Use ESP-IDF API - non-blocking and reliable
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    Serial.printf("Init: WiFi mode set (%lums)\n", millis() - initStart);
+    Serial.printf("Init: WiFi Service started (%lums)\n", millis() - initStart);
     
-    esp_task_wdt_reset();
-    // Don't auto-connect during init to avoid long delays
-    ensureWifiConnected(false);
-    
-    // Reset watchdog after WiFi setup
     esp_task_wdt_reset();
     
     update_browser_display();
@@ -786,7 +671,7 @@ void processKB_BROWSER() {
                         OLED().oledLine("Wi-Fi Pass: " + maskPasswordForDisplay(current_line));
                         break;
                     case BROWSER_WIFI_STATUS:
-                        OLED().oledLine("Wi-Fi: " + wifiStatusMessage);
+                        OLED().oledLine("Wi-Fi: " + P_WIFI.getStatusMessage());
                         break;
                 }
                 
