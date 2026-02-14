@@ -1,6 +1,6 @@
 #include <pocketmage.h>
 
-void PocketMage_INIT(){
+void PocketMage_INIT() {
   // Serial, I2C, SPI
   Serial.begin(115200);
   Wire.begin(I2C_SDA, I2C_SCL);
@@ -11,7 +11,7 @@ void PocketMage_INIT(){
 
   // STARTUP JINGLE
   setupBZ();
-  
+
   // WAKE INTERRUPT SETUP
   pinMode(KB_IRQ, INPUT);
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_8, 0);
@@ -21,7 +21,7 @@ void PocketMage_INIT(){
 
   // EINK HANDLER SETUP
   setupEink();
-  
+
   // SD CARD SETUP
   setupSD();
 
@@ -30,13 +30,15 @@ void PocketMage_INIT(){
   attachInterrupt(digitalPinToInterrupt(PWR_BTN), pocketmage::power::PWR_BTN_irq, FALLING);
   pinMode(CHRG_SENS, INPUT);
   pinMode(BAT_SENS, INPUT);
-  //WiFi.mode(WIFI_OFF);
-  //btStop();
+  // WiFi.mode(WIFI_OFF);
+  // btStop();
 
   // SET CPU CLOCK FOR POWER SAVE MODE
-  if (SAVE_POWER) setCpuFrequencyMhz(40 );
-  else            setCpuFrequencyMhz(240);
-  
+  if (SAVE_POWER)
+    setCpuFrequencyMhz(40);
+  else
+    setCpuFrequencyMhz(240);
+
   // CAPACATIVE TOUCH SETUP
   setupTouch();
 

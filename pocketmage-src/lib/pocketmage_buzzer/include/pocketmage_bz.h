@@ -17,7 +17,7 @@
    }; // This is constexpr so its compile time, not run time
    const Jingles::myMelody = { myMelodyNotes, sizeof(myMelodyNotes) / sizeof(myMelodyNotes[0]);
 
- 
+
  * */
 
 struct Note {

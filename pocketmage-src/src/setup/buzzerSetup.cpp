@@ -10,8 +10,9 @@ void setupBZ() {
 
 // Wire function  for Buzzer class
 // add any global references here + add set function to class header file
-void wireBZ() {
-}
+void wireBZ() {}
 
 // Access for other apps
-PocketmageBZ& BZ() { return pm_bz; }
+PocketmageBZ& BZ() {
+  return pm_bz;
+}

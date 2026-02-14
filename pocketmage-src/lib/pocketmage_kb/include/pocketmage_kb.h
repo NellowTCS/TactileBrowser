@@ -7,37 +7,45 @@
 
 #pragma once
 #include <Arduino.h>
+
 #include <functional>
 #include <utility>
 
 // forward-declaration to avoid including Adafruit_TCA8418.h
-class Adafruit_TCA8418;   
+class Adafruit_TCA8418;
 
 // ===================== KB CLASS =====================
 class PocketmageKB {
-public:
-  explicit PocketmageKB(Adafruit_TCA8418 &kp) : keypad_(kp) {}
+ public:
+  explicit PocketmageKB(Adafruit_TCA8418& kp) : keypad_(kp) {}
 
   using KbStateFn = std::function<int()>;
 
-  void setTCA8418EventFlag(volatile bool* flag)          { TCA8418_event_ = flag;}
-  void setPrevTimeMillis(volatile int* prevTime)    { prevTimeMillis_ = prevTime;}
-  void setKeyboardState(int* kbState)                       { kbState_ = kbState;}
-  void setKeyboardStateGetter(KbStateFn fn)         { kbStateFn_ = std::move(fn);}
+  void setTCA8418EventFlag(volatile bool* flag) {
+    TCA8418_event_ = flag;
+  }
+  void setPrevTimeMillis(volatile int* prevTime) {
+    prevTimeMillis_ = prevTime;
+  }
+  void setKeyboardState(int* kbState) {
+    kbState_ = kbState;
+  }
+  void setKeyboardStateGetter(KbStateFn fn) {
+    kbStateFn_ = std::move(fn);
+  }
 
   // Main methods
   void IRAM_ATTR TCA8418_irq();
   char updateKeypress();
 
+ private:
+  Adafruit_TCA8418& keypad_;  // class reference to hardware keypad object
 
-private:
-  Adafruit_TCA8418      &keypad_; // class reference to hardware keypad object
+  volatile bool* TCA8418_event_ = nullptr;
+  int* kbState_ = nullptr;
+  KbStateFn kbStateFn_ = nullptr;
 
-  volatile bool*        TCA8418_event_  = nullptr;
-  int*                  kbState_        = nullptr;
-  KbStateFn             kbStateFn_      = nullptr;
-
-  volatile int*         prevTimeMillis_ = nullptr;
+  volatile int* prevTimeMillis_ = nullptr;
 
   int currentKbState() const;
 };

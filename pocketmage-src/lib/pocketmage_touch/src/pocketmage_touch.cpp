@@ -1,14 +1,17 @@
-#include <pocketmage_touch.h>
-#include <pocketmage_eink.h> 
 #include <Adafruit_MPR121.h>
-#include <config.h> // for TOUCH_TIMEOUT_MS
+#include <config.h>  // for TOUCH_TIMEOUT_MS
+#include <pocketmage_eink.h>
+#include <pocketmage_touch.h>
 
 void PocketmageTOUCH::updateScrollFromTouch() {
   uint16_t touched = cap_.touched();
   int newTouch = -1;
 
   for (int i = 0; i < 9; ++i)
-    if (touched & (1 << i)) { newTouch = i; break; }
+    if (touched & (1 << i)) {
+      newTouch = i;
+      break;
+    }
 
   unsigned long now = millis();
 
@@ -33,7 +36,7 @@ void PocketmageTOUCH::updateScrollFromTouch() {
   }
 }
 
-bool PocketmageTOUCH::updateScroll(int maxScroll,ulong& lineScroll) {
+bool PocketmageTOUCH::updateScroll(int maxScroll, ulong& lineScroll) {
   const char* tag = "TOUCH";
   static int lastTouchPos = -1;
   static unsigned long lastTouchTime = 0;
@@ -76,7 +79,7 @@ bool PocketmageTOUCH::updateScroll(int maxScroll,ulong& lineScroll) {
     }
 
     lastTouchPos = touchPos;      // update tracked touch
-    *lastTouch_ = touchPos;         // <--- update UI flag
+    *lastTouch_ = touchPos;       // <--- update UI flag
     lastTouchTime = currentTime;  // reset timeout
   } else if (lastTouchPos != -1 && (currentTime - lastTouchTime > TOUCH_TIMEOUT_MS)) {
     // Timeout: reset both

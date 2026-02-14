@@ -5,8 +5,8 @@
 //   888    "             888   8     `88b.8   888`88b.     //
 //   888       o          888   8       `888   888  `88b.   //
 //  o888ooooood8         o888o o8o        `8  o888o  o888o  //
-#include <pocketmage.h>
 #include <GxEPD2_BW.h>
+#include <pocketmage.h>
 
 // Initialization of eink display class
 static PocketmageEink pm_eink(display);
@@ -18,18 +18,16 @@ void setupEink() {
   display.setRotation(3);
   display.setTextColor(GxEPD_BLACK);
   display.setFullWindow();
-  EINK().setTXTFont(&FreeMonoBold9pt7b); // default font, computeFontMetrics_()
+  EINK().setTXTFont(&FreeMonoBold9pt7b);  // default font, computeFontMetrics_()
 
-  xTaskCreatePinnedToCore(
-    einkHandler,             // Function name
-    "einkHandlerTask",       // Task name
-    10000,                   // Stack size
-    NULL,                    // Parameters 
-    1,                       // Priority 
-    &einkHandlerTaskHandle,  // Task handle
-    1                        // Core ID 
+  xTaskCreatePinnedToCore(einkHandler,             // Function name
+                          "einkHandlerTask",       // Task name
+                          10000,                   // Stack size
+                          NULL,                    // Parameters
+                          1,                       // Priority
+                          &einkHandlerTaskHandle,  // Task handle
+                          1                        // Core ID
   );
-
 }
 
 // Wire function  for Eink class
@@ -40,5 +38,7 @@ void wireEink() {
   pm_eink.setDynamicScroll(&dynamicScroll);
 }
 
-// Access for other apps 
-PocketmageEink& EINK() { return pm_eink; }
+// Access for other apps
+PocketmageEink& EINK() {
+  return pm_eink;
+}

@@ -1,10 +1,10 @@
 #include <pocketmage.h>
 
-static constexpr const char* TAG = "CLOCK"; // TODO: Come up with a better tag
+static constexpr const char* TAG = "CLOCK";  // TODO: Come up with a better tag
 
 static PocketmageCLOCK pm_clock(rtc);
 
-void setupClock(){
+void setupClock() {
   pinMode(RTC_INT, INPUT);
   if (!CLOCK().begin()) {
     ESP_LOGE(TAG, "Couldn't find RTC");
@@ -18,9 +18,9 @@ void setupClock(){
   wireClock();
 }
 
-void wireClock(){
-    
-}
+void wireClock() {}
 
 // clock object reference for other apps
-PocketmageCLOCK& CLOCK() { return pm_clock; }
+PocketmageCLOCK& CLOCK() {
+  return pm_clock;
+}

@@ -9,14 +9,16 @@ extern "C" {
 
 // DOM renderer interface
 typedef struct {
-    // Render HTML document to container
-    RenderResult (*render_document)(lxb_html_document_t* document, RenderContext* context);
-    // Render DOM node recursively
-    void (*render_node)(lxb_dom_node_t* node, RenderContext* context);
-    // Create widget for element
-    void* (*create_element_widget)(ElementType type, RenderContext* context, const char* text);
-    // Apply CSS styles to widget
-    void (*apply_styles)(void* widget, RenderContext* context, const char* style);
+  // Render HTML document to container
+  RenderResult (*render_document)(lxb_html_document_t *document,
+                                  RenderContext *context);
+  // Render DOM node recursively
+  void (*render_node)(lxb_dom_node_t *node, RenderContext *context);
+  // Create widget for element
+  void *(*create_element_widget)(ElementType type, RenderContext *context,
+                                 const char *text);
+  // Apply CSS styles to widget
+  void (*apply_styles)(void *widget, RenderContext *context, const char *style);
 } DomRendererInterface;
 
 // Global DOM renderer instance
@@ -29,7 +31,7 @@ bool dom_renderer_init(void);
 void dom_renderer_cleanup(void);
 
 // Main rendering function
-RenderResult render_html_to_container(const char* url, RenderContext* context);
+RenderResult render_html_to_container(const char *url, RenderContext *context);
 
 #ifdef __cplusplus
 }

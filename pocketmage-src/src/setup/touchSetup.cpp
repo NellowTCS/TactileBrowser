@@ -5,7 +5,7 @@ static PocketmageTOUCH pm_touch(cap);
 
 static constexpr const char* TAG = "TOUCH";
 
-void setupTouch(){
+void setupTouch() {
   // MPR121 / SLIDER
   if (!cap.begin(MPR121_ADDR)) {
     ESP_LOGE(TAG, "TouchPad Failed");
@@ -16,7 +16,7 @@ void setupTouch(){
   wireTouch();
 }
 
-void wireTouch(){
+void wireTouch() {
   pm_touch.setAllLines(&allLines);
   pm_touch.setEink(EINK());
   pm_touch.setNewLineAdded(&newLineAdded);
@@ -27,4 +27,6 @@ void wireTouch(){
 }
 
 // touch object reference for other apps
-PocketmageTOUCH& TOUCH() { return pm_touch; }
+PocketmageTOUCH& TOUCH() {
+  return pm_touch;
+}
