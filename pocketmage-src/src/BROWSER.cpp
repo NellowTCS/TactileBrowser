@@ -505,6 +505,7 @@ void BROWSER_INIT() {
   esp_task_wdt_reset();
   Serial.println("Init: WiFi Service...");
   P_WIFI.begin();
+  P_WIFI._autoConnectEnabled = false;  // Disable until it works
   P_WIFI.setEventCallback([] {
     newLineAdded = true;
     newState = true;
@@ -512,7 +513,7 @@ void BROWSER_INIT() {
   });
   P_WIFI.enable();
   // Trigger initial scan/autoconnect
-  P_WIFI.scan();
+  // P_WIFI.scan();
 
   Serial.printf("Init: WiFi Service started (%lums)\n", millis() - initStart);
 
