@@ -1,6 +1,5 @@
 #include "pocketmage_wifi.h"
 
-#include <esp_log.h>
 #include <esp_task_wdt.h>
 
 #include <cstring>
@@ -50,33 +49,42 @@ void PocketMageWifi::begin() {
   // Initialize ESP-IDF networking stack ONCE per boot (static guard)
   static bool netif_initialized = false;
   if (!netif_initialized) {
+    Serial.println("WiFi: Calling esp_netif_init()...");
     esp_err_t err = esp_netif_init();
-    ESP_LOGI(TAG, "esp_netif_init: %s", esp_err_to_name(err));
+    Serial.printf("WiFi: esp_netif_init returned: %s\n", esp_err_to_name(err));
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-      ESP_LOGE(TAG, "esp_netif_init failed critically");
+      Serial.println("WiFi: CRITICAL - esp_netif_init failed!");
       return;
     }
     
+    Serial.println("WiFi: Calling esp_event_loop_create_default()...");
     err = esp_event_loop_create_default();
-    ESP_LOGI(TAG, "esp_event_loop_create_default: %s", esp_err_to_name(err));
+    Serial.printf("WiFi: esp_event_loop_create_default returned: %s\n", esp_err_to_name(err));
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-      ESP_LOGE(TAG, "esp_event_loop_create_default failed critically");
+      Serial.println("WiFi: CRITICAL - esp_event_loop_create_default failed!");
       return;
     }
     
     netif_initialized = true;
+    Serial.println("WiFi: Network stack initialized");
+  } else {
+    Serial.println("WiFi: Network stack already initialized (static guard)");
   }
   
   // Create network interface once per instance
   if (!_staNetif) {
+    Serial.println("WiFi: Creating default WiFi STA interface...");
     _staNetif = esp_netif_create_default_wifi_sta();
-    ESP_LOGI(TAG, "esp_netif_create_default_wifi_sta: %p", _staNetif);
+    Serial.printf("WiFi: _staNetif = %p\n", _staNetif);
+  } else {
+    Serial.printf("WiFi: _staNetif already exists: %p\n", _staNetif);
   }
   
   _commandQueue = xQueueCreate(8, sizeof(Command));
   _eventGroup = xEventGroupCreate();
   xTaskCreatePinnedToCore(wifiTaskFunc, "pmwifi", 4096, this, 2, &_taskHandle, 0);  // Pin to core 0
   _initialized = true;
+  Serial.println("WiFi: begin() complete");
 }
 
 void PocketMageWifi::stop() {
@@ -285,19 +293,23 @@ void PocketMageWifi::espEventHandler(void* arg, esp_event_base_t base, int32_t i
 void PocketMageWifi::handleWifiEvent(int32_t id, void* data) {
   switch (id) {
     case WIFI_EVENT_STA_START:
+      Serial.println("WiFi EVENT: STA_START");
       setStatus("WiFi started");
       break;
     case WIFI_EVENT_STA_CONNECTED:
+      Serial.println("WiFi EVENT: STA_CONNECTED");
       setStatus("WiFi connected");
       _state = WifiRadioState::Connected;
       publishEvent();
       break;
     case WIFI_EVENT_STA_DISCONNECTED:
+      Serial.println("WiFi EVENT: STA_DISCONNECTED");
       setStatus("WiFi disconnected");
       _state = WifiRadioState::On;
       publishEvent();
       break;
     case WIFI_EVENT_SCAN_DONE:
+      Serial.println("WiFi EVENT: SCAN_DONE");
       setStatus("Scan done");
       {
         uint16_t num = 0;
@@ -311,10 +323,10 @@ void PocketMageWifi::handleWifiEvent(int32_t id, void* data) {
         _scanResults = (wifi_ap_record_t*)malloc(sizeof(wifi_ap_record_t) * num);
         if (_scanResults) {
           esp_err_t err = esp_wifi_scan_get_ap_records(&num, _scanResults);
-          ESP_LOGI(TAG, "esp_wifi_scan_get_ap_records: %s, got %d APs", esp_err_to_name(err), num);
+          Serial.printf("WiFi: Got %d APs from scan (%s)\n", num, esp_err_to_name(err));
           _scanResultCount = num;
         } else {
-          ESP_LOGE(TAG, "Failed to allocate scan results buffer");
+          Serial.println("WiFi: ERROR - Failed to allocate scan results buffer");
           _scanResultCount = 0;
         }
       }
@@ -340,10 +352,11 @@ void PocketMageWifi::doEnable() {
   if (_state == WifiRadioState::Off || _state == WifiRadioState::TurningOff) {
     _state = WifiRadioState::TurningOn;
     setStatus("Enabling WiFi...");
+    Serial.println("WiFi: doEnable() called");
     
     // Don't recreate netif - it's created once in begin()
     if (!_staNetif) {
-      ESP_LOGE(TAG, "doEnable: _staNetif is null! WiFi cannot start.");
+      Serial.println("WiFi: ERROR - _staNetif is null!");
       setStatus("WiFi init failed");
       _state = WifiRadioState::Off;
       return;
@@ -352,12 +365,13 @@ void PocketMageWifi::doEnable() {
     // Check if WiFi is already initialized (e.g., after disable/enable cycle)
     wifi_mode_t mode;
     esp_err_t err = esp_wifi_get_mode(&mode);
+    Serial.printf("WiFi: esp_wifi_get_mode returned: %s\n", esp_err_to_name(err));
     
     if (err == ESP_OK) {
       // WiFi already initialized, just start it
-      ESP_LOGI(TAG, "WiFi already initialized (mode=%d), just starting", mode);
+      Serial.printf("WiFi: Already initialized (mode=%d), just starting\n", mode);
       err = esp_wifi_start();
-      ESP_LOGI(TAG, "esp_wifi_start: %s", esp_err_to_name(err));
+      Serial.printf("WiFi: esp_wifi_start returned: %s\n", esp_err_to_name(err));
       
       if (err == ESP_OK) {
         _state = WifiRadioState::On;
@@ -371,45 +385,50 @@ void PocketMageWifi::doEnable() {
     }
     
     // WiFi not initialized yet, do full init
-    ESP_LOGI(TAG, "WiFi not initialized, doing full init");
+    Serial.println("WiFi: Not initialized yet, doing FULL init");
     
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    Serial.println("WiFi: Calling esp_wifi_init()...");
     err = esp_wifi_init(&cfg);
-    ESP_LOGI(TAG, "esp_wifi_init: %s", esp_err_to_name(err));
+    Serial.printf("WiFi: esp_wifi_init returned: %s\n", esp_err_to_name(err));
     if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT) {
-      ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(err));
+      Serial.printf("WiFi: ERROR - esp_wifi_init failed: %s\n", esp_err_to_name(err));
       setStatus("WiFi init failed");
       _state = WifiRadioState::Off;
       publishEvent();
       return;
     }
     
+    Serial.println("WiFi: Registering event handlers...");
     err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                         &PocketMageWifi::espEventHandler, this, &_wifiEventHandler);
-    ESP_LOGI(TAG, "esp_event_handler_instance_register WIFI_EVENT: %s", esp_err_to_name(err));
+    Serial.printf("WiFi: WIFI_EVENT handler registered: %s\n", esp_err_to_name(err));
     
     err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
                                         &PocketMageWifi::espEventHandler, this, &_ipEventHandler);
-    ESP_LOGI(TAG, "esp_event_handler_instance_register IP_EVENT: %s", esp_err_to_name(err));
+    Serial.printf("WiFi: IP_EVENT handler registered: %s\n", esp_err_to_name(err));
     
+    Serial.println("WiFi: Setting mode to STA...");
     err = esp_wifi_set_mode(WIFI_MODE_STA);
-    ESP_LOGI(TAG, "esp_wifi_set_mode: %s", esp_err_to_name(err));
+    Serial.printf("WiFi: esp_wifi_set_mode returned: %s\n", esp_err_to_name(err));
     if (err != ESP_OK) {
-      ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(err));
+      Serial.printf("WiFi: ERROR - esp_wifi_set_mode failed: %s\n", esp_err_to_name(err));
       setStatus("WiFi mode failed");
       _state = WifiRadioState::Off;
       publishEvent();
       return;
     }
     
+    Serial.println("WiFi: Starting WiFi stack...");
     err = esp_wifi_start();
-    ESP_LOGI(TAG, "esp_wifi_start: %s", esp_err_to_name(err));
+    Serial.printf("WiFi: esp_wifi_start returned: %s\n", esp_err_to_name(err));
     
     if (err == ESP_OK) {
       _state = WifiRadioState::On;
       setStatus("WiFi enabled");
+      Serial.println("WiFi: Successfully enabled!");
     } else {
-      ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(err));
+      Serial.printf("WiFi: ERROR - esp_wifi_start failed: %s\n", esp_err_to_name(err));
       _state = WifiRadioState::Off;
       setStatus("WiFi start failed");
     }
@@ -421,12 +440,13 @@ void PocketMageWifi::doDisable() {
   if (_state != WifiRadioState::Off && _state != WifiRadioState::TurningOff) {
     _state = WifiRadioState::TurningOff;
     setStatus("Disabling WiFi...");
+    Serial.println("WiFi: doDisable() called");
     
     esp_err_t err = esp_wifi_stop();
-    ESP_LOGI(TAG, "esp_wifi_stop: %s", esp_err_to_name(err));
+    Serial.printf("WiFi: esp_wifi_stop returned: %s\n", esp_err_to_name(err));
     
     err = esp_wifi_deinit();
-    ESP_LOGI(TAG, "esp_wifi_deinit: %s", esp_err_to_name(err));
+    Serial.printf("WiFi: esp_wifi_deinit returned: %s\n", esp_err_to_name(err));
     
     // Don't destroy netif - we'll reuse it
     
@@ -440,6 +460,7 @@ void PocketMageWifi::doScan() {
   if (_state == WifiRadioState::On || _state == WifiRadioState::Connected) {
     _state = WifiRadioState::Scanning;
     setStatus("Scanning...");
+    Serial.println("WiFi: Starting scan...");
     wifi_scan_config_t scanConf = {};
     scanConf.ssid = nullptr;
     scanConf.bssid = nullptr;
@@ -447,7 +468,7 @@ void PocketMageWifi::doScan() {
     scanConf.show_hidden = true;
     
     esp_err_t err = esp_wifi_scan_start(&scanConf, false);
-    ESP_LOGI(TAG, "esp_wifi_scan_start: %s", esp_err_to_name(err));
+    Serial.printf("WiFi: esp_wifi_scan_start returned: %s\n", esp_err_to_name(err));
     
     publishEvent();
   }
@@ -459,6 +480,7 @@ void PocketMageWifi::doConnect() {
     return;
   }
   setStatus("Connecting...");
+  Serial.printf("WiFi: Connecting to SSID: %s\n", _pendingSSID);
   wifi_config_t config = {};
   strncpy((char*)config.sta.ssid, _pendingSSID, sizeof(config.sta.ssid));
   strncpy((char*)config.sta.password, _pendingPassword, sizeof(config.sta.password));
@@ -466,10 +488,10 @@ void PocketMageWifi::doConnect() {
   config.sta.pmf_cfg.capable = true;
   
   esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &config);
-  ESP_LOGI(TAG, "esp_wifi_set_config: %s", esp_err_to_name(err));
+  Serial.printf("WiFi: esp_wifi_set_config returned: %s\n", esp_err_to_name(err));
   
   err = esp_wifi_connect();
-  ESP_LOGI(TAG, "esp_wifi_connect: %s", esp_err_to_name(err));
+  Serial.printf("WiFi: esp_wifi_connect returned: %s\n", esp_err_to_name(err));
   
   if (_pendingSave)
     saveCredentials(_pendingSSID, _pendingPassword);
@@ -479,7 +501,7 @@ void PocketMageWifi::doConnect() {
 
 void PocketMageWifi::doDisconnect() {
   esp_err_t err = esp_wifi_disconnect();
-  ESP_LOGI(TAG, "esp_wifi_disconnect: %s", esp_err_to_name(err));
+  Serial.printf("WiFi: esp_wifi_disconnect returned: %s\n", esp_err_to_name(err));
   
   setStatus("Disconnecting...");
   _state = WifiRadioState::On;
