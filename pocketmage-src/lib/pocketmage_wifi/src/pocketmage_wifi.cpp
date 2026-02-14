@@ -18,9 +18,6 @@ PocketMageWifi::PocketMageWifi()
       _state(WifiRadioState::Off),
       _scanResults(nullptr),
       _scanResultCount(0),
-      _taskHandle(nullptr),
-      _commandQueue(nullptr),
-      _eventGroup(nullptr),
       _staNetif(nullptr),
       _wifiEventHandler(nullptr),
       _ipEventHandler(nullptr),
@@ -93,6 +90,7 @@ void PocketMageWifi::stop() {
 }
 
 void PocketMageWifi::enable() {
+  // Call directly - no task needed
   doEnable();
 }
 
@@ -448,7 +446,7 @@ void PocketMageWifi::doAutoConnect() {
   }
 }
 
-// Call this periodically from the main loop to handle auto-scan/auto-connect
+// Call this periodically from your main loop to handle auto-scan/auto-connect
 void PocketMageWifi::process() {
   if (!_initialized) return;
   
