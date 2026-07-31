@@ -504,7 +504,7 @@ void BROWSER_INIT() {
 
   esp_task_wdt_reset();
   Serial.println("Init: WiFi Service...");
-  Serial.println("New version, not cached 2");
+  setCpuFrequencyMhz(240);
   P_WIFI.begin();
   P_WIFI.setEventCallback([] {
     newLineAdded = true;
