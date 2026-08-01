@@ -1,5 +1,5 @@
 #include "css_parser.h"
-#include "tactilebrowser_core.h"
+#include "fdm.h"
 #include <ctype.h>
 #include <lexbor/css/css.h>
 #include <lexbor/css/declaration.h>
@@ -365,7 +365,7 @@ void css_parser_add_stylesheet(const char *css, size_t length) {
             block_value = declarations;
             block_consumed = true;
           } else {
-            block_value = safe_strdup(declarations);
+            block_value = fdm_strdup(declarations);
           }
 
           if (block_value) {
@@ -411,7 +411,7 @@ const char *css_parser_get_declarations(const char *selector, size_t length) {
   return NULL;
 }
 
-bool css_parser_parse_color_value(const char *value, uint32_t *color_out) {
+bool css_parser_parse_color_value(const char *value, FdmColor *color_out) {
   if (!value || !color_out || !css_parser) {
     return false;
   }
@@ -470,84 +470,3 @@ bool css_parser_parse_color_value(const char *value, uint32_t *color_out) {
   return parsed;
 }
 
-void css_parser_parse_inline_style(const char *style, RenderContext *context,
-                                   void *widget) {
-  if (!style || !context || !widget || !css_parser)
-    return;
-
-  if (!css_parser_prepare_memory()) {
-    return;
-  }
-
-  // Parse the inline style declarations using Lexbor
-  lxb_css_rule_declaration_list_t *decl_list = lxb_css_declaration_list_parse(
-      css_parser, css_memory, (const lxb_char_t *)style, strlen(style));
-
-  if (!decl_list)
-    return;
-
-  // Iterate through all declarations
-  lxb_css_rule_t *rule = decl_list->first;
-  while (rule) {
-    if (rule->type == LXB_CSS_RULE_DECLARATION) {
-      lxb_css_rule_declaration_t *decl = (lxb_css_rule_declaration_t *)rule;
-
-      // Handle different property types
-      switch (decl->type) {
-      case LXB_CSS_PROPERTY_COLOR: {
-        lxb_css_property_color_t *color_prop = decl->u.color;
-        if (color_prop && context->renderer->interface->set_text_color) {
-          uint32_t color = lexbor_color_to_uint32(color_prop);
-          context->renderer->interface->set_text_color(context->renderer,
-                                                       widget, color);
-        }
-        break;
-      }
-      case LXB_CSS_PROPERTY_BACKGROUND_COLOR: {
-        lxb_css_property_background_color_t *bg_color_prop =
-            decl->u.background_color;
-        if (bg_color_prop && context->renderer->interface->set_bg_color) {
-          uint32_t color = lexbor_color_to_uint32(bg_color_prop);
-          context->renderer->interface->set_bg_color(context->renderer, widget,
-                                                     color);
-        }
-        break;
-      }
-      case LXB_CSS_PROPERTY_TEXT_ALIGN: {
-        lxb_css_property_text_align_t *text_align_prop = decl->u.text_align;
-        if (text_align_prop && context->renderer->interface->set_text_align) {
-          int align_value = 0; // left/default
-          switch (text_align_prop->type) {
-          case LXB_CSS_TEXT_ALIGN_CENTER:
-            align_value = 1; // center
-            break;
-          case LXB_CSS_TEXT_ALIGN_RIGHT:
-          case LXB_CSS_TEXT_ALIGN_END:
-            align_value = 2; // right
-            break;
-          case LXB_CSS_TEXT_ALIGN_LEFT:
-          case LXB_CSS_TEXT_ALIGN_START:
-          case LXB_CSS_TEXT_ALIGN_JUSTIFY:
-          default:
-            align_value = 0; // left
-            break;
-          }
-          context->renderer->interface->set_text_align(context->renderer,
-                                                       widget, align_value);
-        }
-        break;
-      }
-      // Add more property handlers as needed
-      default:
-        // Ignore unsupported properties for now
-        break;
-      }
-    }
-
-    rule = rule->next;
-  }
-
-  // Clean up the declaration list
-  lxb_css_rule_declaration_list_destroy(decl_list, true);
-  lxb_css_memory_clean(css_memory);
-}

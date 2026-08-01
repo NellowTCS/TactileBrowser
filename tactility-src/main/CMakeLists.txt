@@ -1,25 +1,25 @@
 # Compile core + lexbor sources directly into this component instead of
 # linking separate static libraries as this avoids elf_loader stripping.
-file(GLOB_RECURSE CORE_SOURCES ../../tactilebrowser_core/src/*.cpp)
+file(GLOB_RECURSE CORE_SOURCES ../../fdm/src/*.cpp)
 file(GLOB_RECURSE LEXBOR_SOURCES
-    ../../tactilebrowser_core/lexbor/source/lexbor/core/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/css/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/css/syntax/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/dom/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/encoding/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/engine/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/html/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/ns/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/punycode/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/selectors/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/style/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/tag/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/unicode/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/url/*.c
-    ../../tactilebrowser_core/lexbor/source/lexbor/utils/*.c
+    ../../fdm/lexbor/source/lexbor/core/*.c
+    ../../fdm/lexbor/source/lexbor/css/*.c
+    ../../fdm/lexbor/source/lexbor/css/syntax/*.c
+    ../../fdm/lexbor/source/lexbor/dom/*.c
+    ../../fdm/lexbor/source/lexbor/encoding/*.c
+    ../../fdm/lexbor/source/lexbor/engine/*.c
+    ../../fdm/lexbor/source/lexbor/html/*.c
+    ../../fdm/lexbor/source/lexbor/ns/*.c
+    ../../fdm/lexbor/source/lexbor/punycode/*.c
+    ../../fdm/lexbor/source/lexbor/selectors/*.c
+    ../../fdm/lexbor/source/lexbor/style/*.c
+    ../../fdm/lexbor/source/lexbor/tag/*.c
+    ../../fdm/lexbor/source/lexbor/unicode/*.c
+    ../../fdm/lexbor/source/lexbor/url/*.c
+    ../../fdm/lexbor/source/lexbor/utils/*.c
 )
 file(GLOB LEXBOR_POSIX_SOURCES
-    ../../tactilebrowser_core/lexbor/source/lexbor/ports/posix/lexbor/core/*.c
+    ../../fdm/lexbor/source/lexbor/ports/posix/lexbor/core/*.c
 )
 list(FILTER LEXBOR_POSIX_SOURCES EXCLUDE REGEX ".*fs\\.c$")
 list(APPEND LEXBOR_SOURCES ${LEXBOR_POSIX_SOURCES})
@@ -32,8 +32,8 @@ idf_component_register(
     # includes like <lexbor/html/html.h> are found when building the app.
     INCLUDE_DIRS
       "Source"
-      "../../tactilebrowser_core/include"
-      "../../tactilebrowser_core/lexbor/source"
+      "../../fdm/include"
+      "../../fdm/lexbor/source"
     REQUIRES TactilitySDK esp_http_client newlib
 )
 

@@ -1,6 +1,6 @@
 #include "layout_engine.h"
 #include "css_parser.h"
-#include "tactilebrowser_core.h"
+#include "fdm.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,7 +19,7 @@ static const LayoutBox DEFAULT_BOX = {
     .y = 0,
     .is_block = true,
     .is_inline_block = false,
-    .color = 0xFFFFFF,
+    .color = 0xF0F6FC,
     .bg_color = 0x000000,
     .has_explicit_color = false,
     .has_explicit_bg_color = false,
@@ -43,7 +43,7 @@ static char *trim_whitespace_inplace(char *str) {
   return str;
 }
 
-static bool layout_parse_css_color(const char *value, uint32_t *color) {
+static bool layout_parse_css_color(const char *value, FdmColor *color) {
   if (!value || !color)
     return false;
   return css_parser_parse_color_value(value, color);
@@ -52,7 +52,7 @@ static bool layout_parse_css_color(const char *value, uint32_t *color) {
 static bool parse_angle_keyword(const char *token, float *angle_deg) {
   if (!token || !angle_deg)
     return false;
-  char *copy = safe_strdup(token);
+  char *copy = fdm_strdup(token);
   if (!copy)
     return false;
   char *trimmed = trim_whitespace_inplace(copy);
@@ -101,10 +101,10 @@ static bool parse_angle_keyword(const char *token, float *angle_deg) {
   return handled;
 }
 
-static bool parse_gradient_color_token(const char *token, uint32_t *color) {
+static bool parse_gradient_color_token(const char *token, FdmColor *color) {
   if (!token || !color)
     return false;
-  char *copy = safe_strdup(token);
+  char *copy = fdm_strdup(token);
   if (!copy)
     return false;
   char *trimmed = trim_whitespace_inplace(copy);
@@ -121,7 +121,7 @@ static bool parse_gradient_color_token(const char *token, uint32_t *color) {
 }
 
 static bool layout_parse_linear_gradient(const char *value,
-                                         LinearGradientFill *gradient) {
+                                         FdmLinearGradient *gradient) {
   if (!value || !gradient)
     return false;
   const char *keyword = strstr(value, "linear-gradient");
@@ -132,17 +132,17 @@ static bool layout_parse_linear_gradient(const char *value,
   if (!open || !close || close <= open)
     return false;
 
-  char *inner = safe_strndup(open + 1, (size_t)(close - open - 1));
+  char *inner = fdm_strndup(open + 1, (size_t)(close - open - 1));
   if (!inner)
     return false;
 
   float angle = 180.0f;
-  uint32_t colors[TACTILEBROWSER_MAX_GRADIENT_STOPS] = {0};
+  FdmColor colors[FDM_MAX_GRADIENT_STOPS] = {0};
   size_t stop_count = 0;
 
   char *saveptr = NULL;
   char *token = strtok_r(inner, ",", &saveptr);
-  while (token && stop_count < TACTILEBROWSER_MAX_GRADIENT_STOPS) {
+  while (token && stop_count < FDM_MAX_GRADIENT_STOPS) {
     char *trimmed = trim_whitespace_inplace(token);
     if (*trimmed == '\0') {
       token = strtok_r(NULL, ",", &saveptr);
@@ -158,7 +158,7 @@ static bool layout_parse_linear_gradient(const char *value,
       }
     }
 
-    uint32_t color = 0;
+    FdmColor color = 0;
     if (parse_gradient_color_token(trimmed, &color)) {
       colors[stop_count++] = color;
     }
@@ -181,25 +181,6 @@ static bool layout_parse_linear_gradient(const char *value,
   }
 
   return true;
-}
-
-static void layout_apply_background_fill(RenderInterface *iface,
-                                         Renderer *renderer, LayoutBox *box,
-                                         void *widget) {
-  if (!iface || !renderer || !box || !widget)
-    return;
-
-  if (box->background.type == BACKGROUND_FILL_LINEAR_GRADIENT &&
-      box->background.data.linear.stop_count > 0) {
-    if (iface->set_bg_gradient) {
-      iface->set_bg_gradient(renderer, widget, &box->background.data.linear);
-    } else if (iface->set_bg_color) {
-      iface->set_bg_color(renderer, widget,
-                          box->background.data.linear.stops[0].color);
-    }
-  } else if (box->has_explicit_bg_color && iface->set_bg_color) {
-    iface->set_bg_color(renderer, widget, box->bg_color);
-  }
 }
 
 // Initialize layout engine
@@ -376,33 +357,6 @@ void layout_node_add_child(LayoutNode *parent, LayoutNode *child) {
   }
 }
 
-// Initialize layout context
-LayoutContext *layout_context_create(RenderContext *render_ctx) {
-  LayoutContext *ctx = (LayoutContext *)calloc(1, sizeof(LayoutContext));
-  if (!ctx)
-    return NULL;
-
-  ctx->render_context = render_ctx;
-  ctx->container_width = render_ctx->max_width;
-  ctx->current_x = 0;
-  ctx->current_y = 0;
-  ctx->max_line_height = 0;
-
-  return ctx;
-}
-
-// Destroy layout context
-void layout_context_destroy(LayoutContext *ctx) {
-  if (!ctx)
-    return;
-
-  if (ctx->root) {
-    layout_node_destroy(ctx->root);
-  }
-
-  free(ctx);
-}
-
 // Parse CSS spacing value (e.g., "10px", "10px 20px", "10px 20px 30px 40px")
 BoxSpacing layout_parse_spacing(const char *value) {
   BoxSpacing spacing = {0, 0, 0, 0};
@@ -516,21 +470,21 @@ void layout_apply_css_property(LayoutBox *box, const char *property,
       box->text_align = 0;
     }
   } else if (strcmp(property, "color") == 0) {
-    uint32_t parsed = 0;
+    FdmColor parsed = 0;
     if (layout_parse_css_color(value, &parsed)) {
       box->color = parsed;
       box->has_explicit_color = true;
     }
   } else if (strcmp(property, "background") == 0 ||
              strcmp(property, "background-image") == 0) {
-    LinearGradientFill gradient = {0};
+    FdmLinearGradient gradient = {0};
     if (layout_parse_linear_gradient(value, &gradient)) {
       box->background.type = BACKGROUND_FILL_LINEAR_GRADIENT;
       box->background.data.linear = gradient;
       box->bg_color = gradient.stops[0].color;
       box->has_explicit_bg_color = true;
     } else {
-      uint32_t parsed = 0;
+      FdmColor parsed = 0;
       if (layout_parse_css_color(value, &parsed)) {
         box->bg_color = parsed;
         box->has_explicit_bg_color = true;
@@ -538,7 +492,7 @@ void layout_apply_css_property(LayoutBox *box, const char *property,
       }
     }
   } else if (strcmp(property, "background-color") == 0) {
-    uint32_t parsed = 0;
+    FdmColor parsed = 0;
     if (layout_parse_css_color(value, &parsed)) {
       box->bg_color = parsed;
       box->has_explicit_bg_color = true;
@@ -547,30 +501,43 @@ void layout_apply_css_property(LayoutBox *box, const char *property,
   }
 }
 
-// Calculate total width including padding, border, margin
+// Total width including padding, border, margin
 int layout_get_total_width(const LayoutBox *box) {
   return box->margin.left + box->border.left + box->padding.left + box->width +
          box->padding.right + box->border.right + box->margin.right;
 }
 
-// Calculate total height including padding, border, margin
+// Total height including padding, border, margin
 int layout_get_total_height(const LayoutBox *box) {
   return box->margin.top + box->border.top + box->padding.top + box->height +
          box->padding.bottom + box->border.bottom + box->margin.bottom;
 }
 
-// Estimate text width (simple approximation)
-static int estimate_text_width(const char *text, int font_size) {
+// Default text-width heuristic when no measure callback is available
+static int default_measure(void *ctx, const char *text, int font_size) {
+  (void)ctx;
   if (!text)
     return 0;
-  // Rough approximation: character width ≈ font_size * 0.6
   return (int)(strlen(text) * font_size * 0.6);
 }
 
-// Wrap text to fit within max_width
-TextLines *layout_wrap_text(const char *text, int max_width, int font_size) {
+// Measure text via the session's surface ops (falls back to heuristic).
+static int measure_surface(void *ctx, const char *text, int font_size) {
+  FdmSurface *surface = (FdmSurface *)ctx;
+  if (surface && surface->ops && surface->ops->measure_text)
+    return surface->ops->measure_text(surface, text, font_size);
+  return default_measure(ctx, text, font_size);
+}
+
+// Wrap text to fit within max_width, measuring per word.
+TextLines *layout_wrap_text(const char *text, int max_width, int font_size,
+                            FdmMeasureFn measure, void *measure_ctx) {
   if (!text)
     return NULL;
+
+  FdmMeasureFn m = measure ? measure : default_measure;
+  if (!m)
+    m = default_measure;
 
   TextLines *result = (TextLines *)calloc(1, sizeof(TextLines));
   if (!result)
@@ -580,69 +547,120 @@ TextLines *layout_wrap_text(const char *text, int max_width, int font_size) {
   if (text_len == 0)
     return result;
 
-  // Allocate initial arrays
   int capacity = 4;
   result->lines = (char **)calloc(capacity, sizeof(char *));
   result->line_widths = (int *)calloc(capacity, sizeof(int));
-
-  const char *start = text;
-  const char *end = text + text_len;
-
-  while (start < end) {
-    // Skip leading whitespace
-    while (start < end && isspace((unsigned char)*start))
-      start++;
-    if (start >= end)
-      break;
-
-    // Find line break point
-    const char *line_end = start;
-    const char *last_space = NULL;
-    int current_width = 0;
-
-    while (line_end < end) {
-      if (*line_end == '\n') {
-        break;
-      }
-
-      // Check if adding this character exceeds max width
-      int char_width = (int)(font_size * 0.6);
-      if (current_width + char_width > max_width && last_space) {
-        line_end = last_space;
-        break;
-      }
-
-      if (isspace((unsigned char)*line_end)) {
-        last_space = line_end;
-      }
-
-      current_width += char_width;
-      line_end++;
-    }
-
-    // Ensure we have capacity
-    if (result->line_count >= capacity) {
-      capacity *= 2;
-      result->lines =
-          (char **)realloc(result->lines, capacity * sizeof(char *));
-      result->line_widths =
-          (int *)realloc(result->line_widths, capacity * sizeof(int));
-    }
-
-    // Copy line
-    int line_len = line_end - start;
-    result->lines[result->line_count] = (char *)malloc(line_len + 1);
-    memcpy(result->lines[result->line_count], start, line_len);
-    result->lines[result->line_count][line_len] = '\0';
-    result->line_widths[result->line_count] =
-        estimate_text_width(result->lines[result->line_count], font_size);
-    result->line_count++;
-
-    start = line_end;
-    if (start < end && *start == '\n')
-      start++;
+  if (!result->lines || !result->line_widths) {
+    layout_free_text_lines(result);
+    return NULL;
   }
 
+  const char *end = text + text_len;
+  const char *p = text;
+
+  while (p < end) {
+    // Skip leading whitespace
+    while (p < end && isspace((unsigned char)*p))
+      p++;
+    if (p >= end)
+      break;
+
+    // Growable line buffer
+    int line_cap = 64;
+    int line_len = 0;
+    char *line = (char *)malloc(line_cap);
+    if (!line)
+      break;
+    int width = 0;
+    int words = 0;
+
+    while (p < end) {
+      if (*p == '\n') {
+        p++;
+        break;
+      }
+      // Skip inter-word whitespace
+      while (p < end && isspace((unsigned char)*p) && *p != '\n')
+        p++;
+      if (p >= end || *p == '\n')
+        break;
+
+      const char *word_start = p;
+      while (p < end && !isspace((unsigned char)*p) && *p != '\n')
+        p++;
+      size_t word_len = (size_t)(p - word_start);
+      if (word_len == 0)
+        break;
+
+      char *word = (char *)malloc(word_len + 1);
+      if (!word)
+        break;
+      memcpy(word, word_start, word_len);
+      word[word_len] = '\0';
+
+      int word_width = m(measure_ctx, word, font_size);
+      int sep_width = words > 0 ? m(measure_ctx, " ", font_size) : 0;
+
+      // Start a new line if this word doesn't fit (unless line is empty)
+      if (words > 0 && width + sep_width + word_width > max_width) {
+        free(word);
+        break;
+      }
+
+      // Append separator + word to line
+      if (words > 0) {
+        if (line_len + 1 >= line_cap) {
+          line_cap *= 2;
+          char *bigger = (char *)realloc(line, line_cap);
+          if (!bigger) {
+            free(line);
+            free(word);
+            goto wrap_done;
+          }
+          line = bigger;
+        }
+        line[line_len++] = ' ';
+      }
+      if (line_len + (int)word_len >= line_cap) {
+        while (line_len + (int)word_len >= line_cap)
+          line_cap *= 2;
+        char *bigger = (char *)realloc(line, line_cap);
+        if (!bigger) {
+          free(line);
+          free(word);
+          goto wrap_done;
+        }
+        line = bigger;
+      }
+      memcpy(line + line_len, word, word_len);
+      line_len += (int)word_len;
+
+      width += sep_width + word_width;
+      words++;
+      free(word);
+    }
+
+    line[line_len] = '\0';
+
+    if (result->line_count >= capacity) {
+      capacity *= 2;
+      char **new_lines =
+          (char **)realloc(result->lines, capacity * sizeof(char *));
+      int *new_widths = (int *)realloc(result->line_widths, capacity * sizeof(int));
+      if (!new_lines || !new_widths) {
+        free(line);
+        goto wrap_done;
+      }
+      result->lines = new_lines;
+      result->line_widths = new_widths;
+    }
+
+    result->lines[result->line_count] = line;
+    result->line_widths[result->line_count] = width;
+    result->line_count++;
+  }
+
+wrap_done:
   return result;
 }
 
@@ -660,9 +678,12 @@ void layout_free_text_lines(TextLines *lines) {
 }
 
 // Calculate dimensions for a node
-void layout_calculate_dimensions(LayoutNode *node, int available_width) {
+void layout_calculate_dimensions(LayoutNode *node, int available_width,
+                                 FdmMeasureFn measure, void *measure_ctx) {
   if (!node)
     return;
+
+  FdmMeasureFn m = measure ? measure : default_measure;
 
   // Calculate content width
   if (node->box.width_auto) {
@@ -678,7 +699,7 @@ void layout_calculate_dimensions(LayoutNode *node, int available_width) {
       // Inline elements fit to content
       if (node->text_content) {
         node->box.width =
-            estimate_text_width(node->text_content, node->box.font_size);
+            m(measure_ctx, node->text_content, node->box.font_size);
       } else {
         node->box.width = 0;
       }
@@ -689,9 +710,9 @@ void layout_calculate_dimensions(LayoutNode *node, int available_width) {
   if (node->box.height_auto) {
     if (node->text_content) {
       // Wrap text and calculate height
-      int content_width = node->box.width;
+      int content_width = node->box.width > 0 ? node->box.width : available_width;
       TextLines *lines = layout_wrap_text(node->text_content, content_width,
-                                          node->box.font_size);
+                                          node->box.font_size, m, measure_ctx);
       if (lines) {
         node->box.height = lines->line_count * node->box.line_height;
         layout_free_text_lines(lines);
@@ -703,7 +724,7 @@ void layout_calculate_dimensions(LayoutNode *node, int available_width) {
       int child_height = 0;
       LayoutNode *child = node->first_child;
       while (child) {
-        layout_calculate_dimensions(child, node->box.width);
+        layout_calculate_dimensions(child, node->box.width, m, measure_ctx);
         child_height += layout_get_total_height(&child->box);
         child = child->next_sibling;
       }
@@ -719,11 +740,9 @@ void layout_position_node(LayoutNode *node, int parent_x, int parent_y) {
   if (!node)
     return;
 
-  // Calculate position including margins
   node->box.x = parent_x + node->box.margin.left;
   node->box.y = parent_y + node->box.margin.top;
 
-  // Position children
   if (node->first_child) {
     int child_x = node->box.x + node->box.padding.left + node->box.border.left;
     int child_y = node->box.y + node->box.padding.top + node->box.border.top;
@@ -745,99 +764,320 @@ void layout_position_node(LayoutNode *node, int parent_x, int parent_y) {
   }
 }
 
-static void layout_render_node(LayoutNode *node, RenderContext *render_ctx,
-                               void *parent_widget) {
-  if (!node || !render_ctx || !render_ctx->renderer)
+// ---- Painting ----
+
+static bool node_draws_text(ElementType type) {
+  switch (type) {
+  case ELEMENT_PARAGRAPH:
+  case ELEMENT_HEADING1:
+  case ELEMENT_HEADING2:
+  case ELEMENT_HEADING3:
+  case ELEMENT_HEADING4:
+  case ELEMENT_HEADING5:
+  case ELEMENT_HEADING6:
+  case ELEMENT_LINK:
+  case ELEMENT_BUTTON:
+  case ELEMENT_SPAN:
+  case ELEMENT_STRONG:
+  case ELEMENT_EM:
+  case ELEMENT_BOLD:
+  case ELEMENT_ITALIC:
+  case ELEMENT_UNDERLINE:
+  case ELEMENT_LIST_ITEM:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static void emit_fill(FdmSession *session, int x, int y, int w, int h,
+                      FdmColor color) {
+  FdmSurface *surface = session->surface;
+  if (!surface || !surface->ops || !surface->ops->fill_rect)
     return;
 
-  RenderInterface *iface = render_ctx->renderer->interface;
-  if (!iface)
+  int vy = y - session->scroll_y;
+  if (vy >= session->viewport_h || vy + h <= 0 || x >= session->viewport_w ||
+      x + w <= 0)
+    return;
+  surface->ops->fill_rect(surface, x, vy, w, h, color);
+}
+
+static void emit_fill_gradient(FdmSession *session, int x, int y, int w, int h,
+                               const FdmLinearGradient *gradient) {
+  FdmSurface *surface = session->surface;
+  if (!surface || !surface->ops || !surface->ops->fill_rect_gradient)
     return;
 
-  Renderer *renderer = render_ctx->renderer;
-  void *parent = parent_widget ? parent_widget : render_ctx->root_container;
-  void *widget = NULL;
+  int vy = y - session->scroll_y;
+  if (vy >= session->viewport_h || vy + h <= 0 || x >= session->viewport_w ||
+      x + w <= 0)
+    return;
+  surface->ops->fill_rect_gradient(surface, x, vy, w, h, gradient);
+}
 
-  const char *form_value = node->form_value ? node->form_value : "";
-  const char *placeholder = node->placeholder ? node->placeholder : NULL;
+static void emit_text(FdmSession *session, const char *text, int x, int y,
+                      int max_width, int font_size, FdmColor color, int align,
+                      bool underline) {
+  FdmSurface *surface = session->surface;
+  if (!surface || !surface->ops || !surface->ops->draw_text)
+    return;
 
-  void *saved_parent = renderer->platform_data;
-  if (parent) {
-    renderer->platform_data = parent;
+  int vy = y - session->scroll_y;
+  if (vy >= session->viewport_h || x >= session->viewport_w)
+    return;
+  surface->ops->draw_text(surface, text, x, vy, max_width, font_size, color,
+                          align, underline);
+}
+
+static void emit_border(FdmSession *session, int x, int y, int w, int h,
+                        int border, FdmColor color) {
+  if (border <= 0)
+    return;
+  emit_fill(session, x, y, w, border, color); // top
+  emit_fill(session, x, y + h - border, w, border, color); // bottom
+  emit_fill(session, x, y, border, h, color); // left
+  emit_fill(session, x + w - border, y, border, h, color); // right
+}
+
+static void paint_text_node(FdmSession *session, LayoutNode *node) {
+  FdmSurface *surface = session->surface;
+  if (!surface || !surface->ops || !surface->ops->draw_text)
+    return;
+
+  if (!node->text_content || node->text_content[0] == '\0')
+    return;
+
+  int font_size = node->box.font_size;
+  int line_height = node->box.line_height;
+  int max_width = node->box.width > 0 ? node->box.width : session->viewport_w;
+
+  // Background covers the whole node box (drawn first so text sits on top).
+  FdmLinearGradient *gradient =
+      (node->box.background.type == BACKGROUND_FILL_LINEAR_GRADIENT)
+          ? &node->box.background.data.linear
+          : NULL;
+  if (gradient) {
+    emit_fill_gradient(session, node->box.x, node->box.y, node->box.width,
+                       node->box.height, gradient);
+  } else if (node->box.has_explicit_bg_color) {
+    emit_fill(session, node->box.x, node->box.y, node->box.width,
+              node->box.height, node->box.bg_color);
   }
 
-  if (node->type == ELEMENT_INPUT_TEXT && iface->create_text_input) {
-    node->widget = iface->create_text_input(
-        render_ctx->renderer, form_value, placeholder, node->box.x, node->box.y,
-        node->box.width, node->box.height);
-    widget = node->widget;
-    layout_apply_background_fill(iface, render_ctx->renderer, &node->box,
-                                 widget);
-  } else if (node->type == ELEMENT_TEXTAREA && iface->create_text_area) {
-    node->widget =
-        iface->create_text_area(render_ctx->renderer, form_value, node->box.x,
-                                node->box.y, node->box.width, node->box.height);
-    widget = node->widget;
-    layout_apply_background_fill(iface, render_ctx->renderer, &node->box,
-                                 widget);
-  } else if (node->text_content && strlen(node->text_content) > 0) {
-    if (node->type == ELEMENT_BUTTON && iface->create_button) {
-      node->widget = iface->create_button(
-          render_ctx->renderer, node->text_content, node->box.x, node->box.y);
-    } else if (iface->create_label) {
-      node->widget = iface->create_label(
-          render_ctx->renderer, node->text_content, node->box.x, node->box.y);
+  // Wrap using the surface's measure callback
+  TextLines *lines =
+      layout_wrap_text(node->text_content, max_width, font_size,
+                       measure_surface, surface);
+
+  int region_left = 0, region_top = 0, region_right = 0, region_bottom = 0;
+  bool region_valid = false;
+
+  bool underline = (node->type == ELEMENT_LINK ||
+                    node->type == ELEMENT_UNDERLINE);
+
+  int line_y = node->box.y;
+  for (int i = 0; i < lines->line_count; i++) {
+    const char *line = lines->lines[i];
+    int line_width = lines->line_widths[i];
+
+    int line_x = node->box.x;
+    if (node->box.text_align == FDM_ALIGN_CENTER) {
+      line_x = node->box.x + (max_width - line_width) / 2;
+    } else if (node->box.text_align == FDM_ALIGN_RIGHT) {
+      line_x = node->box.x + max_width - line_width;
+    }
+    if (line_x < node->box.x)
+      line_x = node->box.x;
+
+    FdmColor color = node->box.has_explicit_color ? node->box.color : 0xF0F6FC;
+    if (node->type == ELEMENT_LINK)
+      color = 0x4EA1FF;
+
+    if ((int)session->run_count == session->sel_run) {
+      emit_fill(session, line_x, line_y, line_width, line_height, 0x1F6FEB);
     }
 
-    widget = node->widget;
+    emit_text(session, line, line_x, line_y, line_width, font_size, color,
+              FDM_ALIGN_LEFT, underline);
+    fdm_session_add_run(session, line_x, line_y, line_width, line_height,
+                        font_size, color, underline, line);
 
-    if (widget && iface->set_text_color) {
-      iface->set_text_color(render_ctx->renderer, widget, node->box.color);
-    }
-    layout_apply_background_fill(iface, render_ctx->renderer, &node->box,
-                                 widget);
-
-    if (widget && node->type == ELEMENT_LINK && iface->register_link_handler) {
-      const char *link_target =
-          node->href_path
-              ? node->href_path
-              : (node->href_resolved ? node->href_resolved : node->href);
-      if (link_target && link_target[0] != '\0') {
-        iface->register_link_handler(render_ctx->renderer, widget, link_target);
-      }
-    }
-  } else if (node->type == ELEMENT_DIV || node->type == ELEMENT_CONTAINER) {
-    bool reuse_parent =
-        (node->parent == NULL && parent == render_ctx->root_container);
-    if (reuse_parent) {
-      node->widget = parent;
-    } else if (iface->create_container) {
-      node->widget = iface->create_container(render_ctx->renderer, node->box.x,
-                                             node->box.y, node->box.width,
-                                             node->box.height);
+    if (!region_valid) {
+      region_left = line_x;
+      region_top = line_y;
+      region_right = line_x + line_width;
+      region_bottom = line_y + line_height;
+      region_valid = true;
+    } else {
+      if (line_x < region_left)
+        region_left = line_x;
+      if (line_y < region_top)
+        region_top = line_y;
+      if (line_x + line_width > region_right)
+        region_right = line_x + line_width;
+      if (line_y + line_height > region_bottom)
+        region_bottom = line_y + line_height;
     }
 
-    widget = node->widget;
-    if (widget) {
-      layout_apply_background_fill(iface, render_ctx->renderer, &node->box,
-                                   widget);
+    line_y += line_height;
+  }
+
+  layout_free_text_lines(lines);
+
+  if (node->type == ELEMENT_LINK && region_valid) {
+    const char *link_target =
+        node->href_resolved ? node->href_resolved : node->href;
+    if (link_target && link_target[0] != '\0') {
+      fdm_session_add_region(
+          session, region_left, region_top, region_right - region_left,
+          region_bottom - region_top, false, link_target, NULL, NULL,
+          font_size, node);
+    }
+  }
+}
+
+static void paint_input_node(FdmSession *session, LayoutNode *node,
+                             bool is_textarea) {
+  FdmSurface *surface = session->surface;
+  if (!surface || !surface->ops || !surface->ops->draw_text)
+    return;
+
+  int x = node->box.x;
+  int y = node->box.y;
+  int w = node->box.width;
+  int h = node->box.height;
+
+  // Box + border
+  emit_fill(session, x, y, w, h, 0x141414);
+  bool focused = (int)session->region_count == session->focus_region;
+  FdmColor border_color = focused ? 0x4EA1FF : 0x2D333B;
+  emit_border(session, x, y, w, h, 1, border_color);
+
+  const char *value = node->form_value ? node->form_value : "";
+  const char *display = (value[0] != '\0') ? value
+                        : (node->placeholder ? node->placeholder : "");
+  FdmColor text_color = (value[0] != '\0') ? 0xF0F6FC : 0x7D8590;
+
+  int text_x = x + node->box.padding.left;
+  int text_y = y + node->box.padding.top;
+
+  if (display[0] != '\0' && surface->ops->measure_text) {
+    // Truncate long values to fit
+    int avail = w - node->box.padding.left - node->box.padding.right;
+    // Find how many chars fit
+    int n = 0;
+    int total = 0;
+    while (display[n] != '\0') {
+      char single[2] = {display[n], '\0'};
+      total += surface->ops->measure_text(surface, single, node->box.font_size);
+      if (total > avail && n > 0)
+        break;
+      n++;
+    }
+    char *clipped = fdm_strndup(display, (size_t)n);
+    if (clipped) {
+      emit_text(session, clipped, text_x, text_y, avail,
+                node->box.font_size, text_color, FDM_ALIGN_LEFT, false);
+      free(clipped);
     }
   }
 
-  renderer->platform_data = saved_parent;
+  fdm_session_add_region(session, x, y, w, h, true, NULL,
+                         node->form_value, node->placeholder,
+                         node->box.font_size, node);
+  (void)is_textarea;
+}
 
-  void *next_parent = widget ? widget : parent;
+static void paint_button_node(FdmSession *session, LayoutNode *node) {
+  emit_fill(session, node->box.x, node->box.y, node->box.width,
+            node->box.height, 0x21262D);
+  emit_border(session, node->box.x, node->box.y, node->box.width,
+              node->box.height, 1, 0x2D333B);
+
+  if (!node->text_content || node->text_content[0] == '\0')
+    return;
+
+  int text_y = node->box.y + node->box.padding.top;
+  emit_text(session, node->text_content, node->box.x + node->box.padding.left,
+            text_y, node->box.width - node->box.padding.left -
+                         node->box.padding.right,
+            node->box.font_size, 0xF0F6FC, FDM_ALIGN_LEFT, false);
+}
+
+static void paint_node(FdmSession *session, LayoutNode *node) {
+  if (!node)
+    return;
+
+  switch (node->type) {
+  case ELEMENT_INPUT_TEXT:
+    paint_input_node(session, node, false);
+    break;
+  case ELEMENT_TEXTAREA:
+    paint_input_node(session, node, true);
+    break;
+  case ELEMENT_BUTTON:
+    paint_button_node(session, node);
+    break;
+  default:
+    if (node->text_content && node_draws_text(node->type)) {
+      paint_text_node(session, node);
+    } else if (node->box.background.type == BACKGROUND_FILL_LINEAR_GRADIENT) {
+      emit_fill_gradient(session, node->box.x, node->box.y, node->box.width,
+                         node->box.height, &node->box.background.data.linear);
+    } else if (node->box.has_explicit_bg_color) {
+      emit_fill(session, node->box.x, node->box.y, node->box.width,
+                node->box.height, node->box.bg_color);
+    }
+    break;
+  }
 
   LayoutNode *child = node->first_child;
   while (child) {
-    layout_render_node(child, render_ctx, next_parent);
+    paint_node(session, child);
     child = child->next_sibling;
   }
 }
 
-// Render layout tree to widgets
-void layout_render_tree(LayoutNode *root, RenderContext *render_ctx) {
-  if (!root || !render_ctx)
+// Run layout (dimensions + positioning) for a session's document.
+void fdm_layout_document(FdmSession *session) {
+  if (!session || !session->root)
     return;
-  layout_render_node(root, render_ctx, render_ctx->root_container);
+
+  FdmMeasureFn measure = NULL;
+  void *ctx = NULL;
+  FdmSurface *surface = session->surface;
+  if (surface && surface->ops && surface->ops->measure_text) {
+    measure = measure_surface;
+    ctx = surface;
+  }
+
+  layout_calculate_dimensions(session->root, session->viewport_w, measure, ctx);
+  layout_position_node(session->root, 0, 10);
+}
+
+// Paint a session's document onto its surface.
+void fdm_paint_document(FdmSession *session) {
+  if (!session)
+    return;
+  FdmSurface *surface = session->surface;
+  if (!surface || !surface->ops || !surface->ops->begin_frame ||
+      !surface->ops->end_frame)
+    return;
+
+  surface->ops->begin_frame(surface, session->viewport_w, session->viewport_h);
+
+  fdm_session_reset_interaction(session);
+
+  // Default page background
+  if (surface->ops->fill_rect) {
+    surface->ops->fill_rect(surface, 0, 0, session->viewport_w,
+                            session->viewport_h, 0xFFFFFF);
+  }
+
+  if (session->root) {
+    paint_node(session, session->root);
+  }
+
+  surface->ops->end_frame(surface);
 }

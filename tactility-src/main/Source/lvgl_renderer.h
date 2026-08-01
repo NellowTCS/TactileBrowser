@@ -1,26 +1,28 @@
 #pragma once
 
+#include <fdm.h>
 #include <lvgl.h>
-#include <tactilebrowser_core.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// LVGL-specific renderer implementation
-typedef struct {
-  RenderInterface base;
-  // LVGL-specific data can be added here
-} LvglRenderer;
+// Create an FdmSurface that paints into the given LVGL container.
+// The container is cleared on every begin_frame, so it must not hold any
+// other children. Returns NULL on allocation failure.
+FdmSurface *lvgl_surface_create(lv_obj_t *container);
 
-// Create LVGL renderer
-LvglRenderer *lvgl_renderer_create(void);
+// Destroy the surface created by lvgl_surface_create.
+void lvgl_surface_destroy(FdmSurface *surface);
 
-// Destroy LVGL renderer
-void lvgl_renderer_destroy(LvglRenderer *renderer);
+// Forward an LVGL event from the surface container to the core:
+// a tap becomes pointer down/up (links, inputs), a vertical drag becomes a
+// scroll, and a horizontal drag selects text. Attach this callback to
+// LV_EVENT_PRESSED, LV_EVENT_PRESSING and LV_EVENT_RELEASED.
+void lvgl_surface_handle_event(FdmSurface *surface, lv_event_t *event);
 
-// ESP32 HTTP downloader
-RenderResult esp32_download_html(const char *url, MemoryBuffer *buffer);
+// ESP32 HTTP downloader used by fdm_render_url.
+FdmResult esp32_download_html(const char *url, FdmBuffer *buffer);
 
 #ifdef __cplusplus
 }

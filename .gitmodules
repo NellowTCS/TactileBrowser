@@ -1,9 +1,9 @@
 [submodule "tactilebrowser_core/elk"]
-	path = tactilebrowser_core/elk
+	path = fdm/elk
 	url = https://github.com/cesanta/elk.git
 [submodule "tactilebrowser_core/lvgl"]
-	path = tactilebrowser_core/lvgl
+	path = fdm/lvgl
 	url = https://github.com/lvgl/lvgl.git
 [submodule "tactilebrowser_core/lexbor"]
-	path = tactilebrowser_core/lexbor
+	path = fdm/lexbor
 	url = https://github.com/NellowTCS/lexbor.git
