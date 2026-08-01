@@ -38,7 +38,7 @@ endif()
 find_package(CURL REQUIRED)
 
 # Check subdirs
-if(NOT EXISTS ${CMAKE_SOURCE_DIR}/../tactilebrowser_core/CMakeLists.txt)
+if(NOT EXISTS ${CMAKE_SOURCE_DIR}/../fdm/CMakeLists.txt)
     message(FATAL_ERROR "Core library not found.")
 endif()
 
@@ -56,10 +56,10 @@ set(CMAKE_DISABLE_FIND_PACKAGE_SDL2 TRUE)
 # Set CXX compiler to C compiler to avoid C++ issues with LVGL
 # set(CMAKE_CXX_COMPILER ${CMAKE_C_COMPILER})  # Disabled - core library now uses C++
 
-add_subdirectory(${CMAKE_SOURCE_DIR}/../tactilebrowser_core ${CMAKE_BINARY_DIR}/tactilebrowser_core EXCLUDE_FROM_ALL)
+add_subdirectory(${CMAKE_SOURCE_DIR}/../fdm ${CMAKE_BINARY_DIR}/fdm EXCLUDE_FROM_ALL)
 
 # Add LVGL subdirectory
-add_subdirectory(${CMAKE_SOURCE_DIR}/../tactilebrowser_core/lvgl ${CMAKE_BINARY_DIR}/lvgl EXCLUDE_FROM_ALL)
+add_subdirectory(${CMAKE_SOURCE_DIR}/../fdm/lvgl ${CMAKE_BINARY_DIR}/lvgl EXCLUDE_FROM_ALL)
 
 # Add SDL2 include directories to LVGL target
 target_include_directories(lvgl PRIVATE ${SDL2_INCLUDE_DIRS})
@@ -68,15 +68,15 @@ add_executable(TactileBrowser Source/main.cpp)
 
 target_include_directories(TactileBrowser PRIVATE
     ${CURL_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/../tactilebrowser_core/include
-    ${CMAKE_SOURCE_DIR}/../tactilebrowser_core/lvgl
-    ${CMAKE_SOURCE_DIR}/../tactilebrowser_core/lvgl/src
-    ${CMAKE_SOURCE_DIR}/../tactilebrowser_core/lvgl/src/drivers/sdl
+    ${CMAKE_SOURCE_DIR}/../fdm/include
+    ${CMAKE_SOURCE_DIR}/../fdm/lvgl
+    ${CMAKE_SOURCE_DIR}/../fdm/lvgl/src
+    ${CMAKE_SOURCE_DIR}/../fdm/lvgl/src/drivers/sdl
     ${SDL2_INCLUDE_DIRS}
 )
 
 target_link_libraries(TactileBrowser
-    tactilebrowser_core
+    fdm
     lvgl
     ${SDL2_LIBRARIES}
     ${CURL_LIBRARIES}

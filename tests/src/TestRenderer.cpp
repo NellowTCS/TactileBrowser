@@ -1,145 +1,132 @@
 #include "TestRenderer.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace {
 
-TestWidget *widget_from(void *ptr) {
-  return reinterpret_cast<TestWidget *>(ptr);
-}
-
-TestWidget *ensure_parent(Renderer *renderer) {
-  TestWidget *parent = widget_from(renderer->platform_data);
-  if (!parent) {
-    parent = test_renderer_root();
-  }
-  return parent;
-}
-
-TestWidget *make_child(TestWidget *parent, const char *text, bool is_container,
-                       bool is_input, int x, int y, int width, int height) {
+void op_begin_frame(FdmSurface *, int width, int height) {
   TestRendererState &state = test_renderer_state();
+  Op op;
+  op.kind = OpKind::BeginFrame;
+  op.w = width;
+  op.h = height;
+  state.ops.push_back(op);
+}
 
-  auto owned = std::make_unique<TestWidget>();
-  TestWidget *child = owned.get();
-  child->parent = parent;
-  child->is_container = is_container;
-  child->is_input = is_input;
-  child->x = x;
-  child->y = y;
-  child->width = width;
-  child->height = height;
+void op_end_frame(FdmSurface *) {
+  Op op;
+  op.kind = OpKind::EndFrame;
+  test_renderer_state().ops.push_back(op);
+}
+
+void op_fill_rect(FdmSurface *, int x, int y, int w, int h, uint32_t color) {
+  Op op;
+  op.kind = OpKind::FillRect;
+  op.x = x;
+  op.y = y;
+  op.w = w;
+  op.h = h;
+  op.color = color;
+  test_renderer_state().ops.push_back(op);
+}
+
+void op_fill_rect_gradient(FdmSurface *, int x, int y, int w, int h,
+                           const FdmLinearGradient *gradient) {
+  Op op;
+  op.kind = OpKind::FillGradient;
+  op.x = x;
+  op.y = y;
+  op.w = w;
+  op.h = h;
+  if (gradient) {
+    op.angle_deg = gradient->angle_deg;
+    op.stop_count = gradient->stop_count;
+    for (size_t i = 0; i < gradient->stop_count; ++i) {
+      op.stop_colors[i] = gradient->stops[i].color;
+      op.stop_positions[i] = gradient->stops[i].position;
+    }
+  }
+  test_renderer_state().ops.push_back(op);
+}
+
+void op_draw_text(FdmSurface *, const char *text, int x, int y, int max_width,
+                  int font_size, uint32_t color, int align, bool underline) {
+  Op op;
+  op.kind = OpKind::DrawText;
+  op.x = x;
+  op.y = y;
+  op.w = max_width;
+  op.color = color;
+  op.font_size = font_size;
+  op.align = align;
+  op.underline = underline;
   if (text) {
-    child->text = text;
+    op.text = text;
   }
-  parent->children.push_back(child);
-  state.owned.push_back(std::move(owned));
-  return child;
+  test_renderer_state().ops.push_back(op);
 }
 
-bool test_renderer_init(Renderer *) { return true; }
-
-void test_renderer_cleanup(Renderer *) {}
-
-void *test_create_label(Renderer *renderer, const char *text, int x, int y) {
-  TestWidget *parent = ensure_parent(renderer);
-  TestWidget *child = make_child(parent, text, false, false, x, y, 0, 0);
-  child->is_text = true;
-  return child;
-}
-
-void *test_create_button(Renderer *renderer, const char *text, int x, int y) {
-  return test_create_label(renderer, text, x, y);
-}
-
-void *test_create_text_input(Renderer *renderer, const char *value,
-                             const char *placeholder, int x, int y, int width,
-                             int height) {
-  (void)placeholder;
-  TestWidget *parent = ensure_parent(renderer);
-  TestWidget *child =
-      make_child(parent, value, false, true, x, y, width, height);
-  return child;
-}
-
-void *test_create_text_area(Renderer *renderer, const char *value, int x, int y,
-                            int width, int height) {
-  return test_create_text_input(renderer, value, nullptr, x, y, width, height);
-}
-
-void *test_create_container(Renderer *renderer, int x, int y, int width,
-                            int height) {
-  TestWidget *parent = ensure_parent(renderer);
-  return make_child(parent, nullptr, true, false, x, y, width, height);
-}
-
-void test_register_link(Renderer *, void *widget, const char *url) {
-  if (!widget || !url)
-    return;
-  test_renderer_state().link_targets.emplace_back(url);
-  widget_from(widget)->text = url;
-}
-
-void test_set_text_color(Renderer *, void *widget, uint32_t) {
-  if (!widget)
-    return;
-  widget_from(widget)->is_text = true;
-}
-
-void test_set_bg_color(Renderer *, void *widget, uint32_t color) {
-  if (!widget)
-    return;
-  TestWidget *w = widget_from(widget);
-  w->bg_set = true;
-  w->bg_color = color;
-  w->gradient_set = false;
-}
-
-void test_set_bg_gradient(Renderer *, void *widget,
-                          const LinearGradientFill *gradient) {
-  if (!widget || !gradient)
-    return;
-  TestWidget *w = widget_from(widget);
-  w->gradient_set = true;
-  w->gradient = *gradient;
-}
-
-void test_set_text_align(Renderer *, void *, int) {}
-
-void test_clear_container(Renderer *, void *container) {
-  TestWidget *widget = widget_from(container);
-  if (!widget)
-    return;
-  TestRendererState &state = test_renderer_state();
-  if (widget == &state.root) {
-    state.reset();
-  }
-}
-
-int test_get_height(Renderer *, void *widget) {
-  if (!widget)
+int op_measure_text(FdmSurface *, const char *text, int font_size) {
+  if (!text) {
     return 0;
-  return widget_from(widget)->height;
+  }
+  return (int)(std::strlen(text) * font_size * 0.6);
 }
 
-RenderInterface &renderer_interface() {
-  static RenderInterface iface = {
-      test_renderer_init,   test_renderer_cleanup,  test_create_label,
-      test_create_button,   test_create_text_input, test_create_text_area,
-      test_register_link,   test_create_container,  test_set_text_color,
-      test_set_bg_color,    test_set_bg_gradient,   test_set_text_align,
-      test_clear_container, test_get_height,        nullptr};
-  return iface;
+const FdmSurfaceOps &surface_ops() {
+  static FdmSurfaceOps ops = {
+      op_begin_frame,
+      op_end_frame,
+      op_fill_rect,
+      op_fill_rect_gradient,
+      op_draw_text,
+      op_measure_text,
+  };
+  return ops;
+}
+
+void test_link_handler(void *user_data, const char *url) {
+  TestRendererState *state = static_cast<TestRendererState *>(user_data);
+  if (state && url) {
+    state->link_targets.emplace_back(url);
+  }
 }
 
 } // namespace
 
 void TestRendererState::reset() {
-  owned.clear();
+  ops.clear();
   link_targets.clear();
-  root = TestWidget{};
-  root.is_container = true;
-  root.text = "root";
+  surface.ops = &surface_ops();
+  surface.platform_data = nullptr;
+  surface.user_data = nullptr;
+}
+
+void TestRendererState::clear_ops() { ops.clear(); }
+
+const Op *TestRendererState::find_fill(uint32_t color) const {
+  auto it = std::find_if(ops.begin(), ops.end(), [color](const Op &op) {
+    return op.kind == OpKind::FillRect && op.color == color;
+  });
+  return it == ops.end() ? nullptr : &(*it);
+}
+
+const Op *TestRendererState::find_gradient() const {
+  auto it = std::find_if(ops.begin(), ops.end(),
+                         [](const Op &op) { return op.kind == OpKind::FillGradient; });
+  return it == ops.end() ? nullptr : &(*it);
+}
+
+const Op *TestRendererState::find_text(const std::string &text) const {
+  auto it = std::find_if(ops.begin(), ops.end(), [&text](const Op &op) {
+    return op.kind == OpKind::DrawText && op.text == text;
+  });
+  return it == ops.end() ? nullptr : &(*it);
+}
+
+bool TestRendererState::has_text(const std::string &text) const {
+  return find_text(text) != nullptr;
 }
 
 TestRendererState &test_renderer_state() {
@@ -147,30 +134,8 @@ TestRendererState &test_renderer_state() {
   return state;
 }
 
-RenderInterface *test_renderer_interface() { return &renderer_interface(); }
-
 void test_renderer_setup() {
-  test_renderer_state().reset();
-  tactilebrowser_set_renderer(test_renderer_interface());
-}
-
-TestWidget *test_renderer_root() { return &test_renderer_state().root; }
-
-TestWidget *test_find_child_by_text(TestWidget *parent,
-                                    const std::string &text) {
-  if (!parent)
-    return nullptr;
-  auto it = std::find_if(
-      parent->children.begin(), parent->children.end(),
-      [&text](TestWidget *child) { return child && child->text == text; });
-  return it == parent->children.end() ? nullptr : *it;
-}
-
-TestWidget *test_find_first_container(TestWidget *parent) {
-  if (!parent)
-    return nullptr;
-  auto it = std::find_if(
-      parent->children.begin(), parent->children.end(),
-      [](TestWidget *child) { return child && child->is_container; });
-  return it == parent->children.end() ? nullptr : *it;
+  TestRendererState &state = test_renderer_state();
+  state.reset();
+  fdm_set_link_handler(test_link_handler, &state);
 }

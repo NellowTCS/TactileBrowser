@@ -8,30 +8,21 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter")
 
 # Emscripten-specific settings
 set(CMAKE_EXECUTABLE_SUFFIX ".html")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -sUSE_SDL=2")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -sUSE_SDL=2")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sUSE_SDL=2 -sALLOW_MEMORY_GROWTH=1 -sASYNCIFY -sEXPORT_ES6=1 -sMODULARIZE=1 -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap'] -sEXPORTED_FUNCTIONS=['_main','_load_url','_render_html_from_js','_wasm_display_message','_start_app']")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sALLOW_MEMORY_GROWTH=1 -sASYNCIFY -sEXPORT_ES6=1 -sMODULARIZE=1 -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap'] -sEXPORTED_FUNCTIONS=['_main','_start_app','_wasm_render_html','_wasm_pointer_event','_wasm_scroll_event']")
 
-# Add LVGL and core library
-add_subdirectory(${CMAKE_SOURCE_DIR}/../tactilebrowser_core ${CMAKE_BINARY_DIR}/tactilebrowser_core EXCLUDE_FROM_ALL)
-add_subdirectory(${CMAKE_SOURCE_DIR}/../tactilebrowser_core/lvgl ${CMAKE_BINARY_DIR}/lvgl EXCLUDE_FROM_ALL)
-
-# LVGL include paths
-target_include_directories(lvgl PRIVATE ${CMAKE_SOURCE_DIR}/../../tactilebrowser_core/lvgl ${CMAKE_SOURCE_DIR}/../../tactilebrowser_core/lvgl/src)
+# Add fdm core library
+add_subdirectory(${CMAKE_SOURCE_DIR}/../fdm ${CMAKE_BINARY_DIR}/fdm EXCLUDE_FROM_ALL)
 
 add_executable(TactileBrowserWasm Source/main.cpp)
 
 target_include_directories(TactileBrowserWasm PRIVATE
-    ${CMAKE_SOURCE_DIR}/../tactilebrowser_core/include
-    ${CMAKE_SOURCE_DIR}/../tactilebrowser_core/lvgl
-    ${CMAKE_SOURCE_DIR}/../tactilebrowser_core/lvgl/src
-    ${CMAKE_SOURCE_DIR}/../tactilebrowser_core/lvgl/src/drivers/sdl
+    ${CMAKE_SOURCE_DIR}/../fdm/include
+    ${CMAKE_SOURCE_DIR}/../fdm/lexbor/source
 )
 
 target_link_libraries(TactileBrowserWasm
-    tactilebrowser_core
-    lvgl
+    fdm
     m
 )
 
-set_target_properties(TactileBrowserWasm PROPERTIES LINK_FLAGS "-sUSE_SDL=2 -sASYNCIFY -sALLOW_MEMORY_GROWTH=1")
+set_target_properties(TactileBrowserWasm PROPERTIES LINK_FLAGS "-sASYNCIFY -sALLOW_MEMORY_GROWTH=1")

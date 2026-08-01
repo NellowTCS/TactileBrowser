@@ -4,38 +4,30 @@
   <meta charset="UTF-8">
   <title>TactileBrowser</title>
   <style>
-    body { margin: 0; background: #0D1117; color: #fff; }
-    #canvas { display: block; margin: 0 auto; background: #1E1E1E; }
-    #address-bar { width: 600px; font-size: 1.2em; }
-    #controls { margin: 10px; }
-    #status { color: #FFD93D; margin-top: 8px; }
+    body { margin: 0; background: #0D1117; color: #fff; font-family: sans-serif; }
+    #canvas { display: block; margin: 10px auto; background: #1E1E1E; border: 1px solid #333; cursor: pointer; }
+    #address-bar { width: 500px; font-size: 1.1em; padding: 4px; }
+    #controls { margin: 10px auto; text-align: center; }
+    #status { color: #FFD93D; margin-top: 8px; display: inline-block; margin-left: 10px; }
   </style>
 </head>
 <body>
   <div id="controls">
     <input type="text" id="address-bar" value="https://example.com">
     <button onclick="loadUrl()">Go</button>
-    <span id="status"></span>
+    <span id="status">Loading...</span>
   </div>
   <canvas id="canvas" width="800" height="600"></canvas>
-  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-  <script>
-    eruda.init();
-  </script>
 
-  <!-- Glue script (non-module) defines window.TactileBrowserWasm and an init() function -->
   <script src="glue.js"></script>
-
-  <!-- Load the Emscripten generated JS as an ES module and instantiate it -->
   <script type="module">
-    // The generated file exports a default factory function when built with MODULARIZE=1 and EXPORT_ES6=1.
     import createModule from './TactileBrowserWasm.js';
 
-    // Create the module instance. Provide canvas and locateFile so the loader can find the .wasm file.
+    const canvas = document.getElementById('canvas');
+    window.TactileBrowserCanvas = canvas;
+
     const modulePromise = createModule({
-      canvas: document.getElementById('canvas'),
       locateFile: (path) => {
-        // Ensure the .wasm file resolves correctly relative to this HTML
         if (path.endsWith('.wasm')) return './TactileBrowserWasm.wasm';
         return path;
       }
@@ -45,8 +37,7 @@
       if (window.TactileBrowserWasm && typeof window.TactileBrowserWasm.init === 'function') {
         window.TactileBrowserWasm.init(ModuleInstance);
       } else {
-        console.warn('glue not loaded or init missing; exposing Module as global fallback');
-        window.Module = ModuleInstance; // best-effort fallback
+        window.Module = ModuleInstance;
       }
     }).catch((err) => {
       const status = document.getElementById('status');
@@ -55,34 +46,58 @@
       console.error('Failed to instantiate WASM module:', err);
     });
 
-    // UI event binding (keeps existing global loadUrl function behavior)
-    function setupAddressBarInteractions() {
-      const addressBar = document.getElementById('address-bar');
-      if (!addressBar) return;
-
-      const swallow = (event) => {
-        // Allow the browser to handle default text input but prevent SDL/Emscripten from hijacking the event.
-        event.stopPropagation();
+    // Mouse / Touch / Wheel event forwarding to WASM fdm core
+    function getCanvasPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+      const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+      return {
+        x: Math.floor(clientX - rect.left),
+        y: Math.floor(clientY - rect.top)
       };
-
-      ['keydown', 'keypress', 'keyup'].forEach((type) => {
-        addressBar.addEventListener(type, swallow, true);
-      });
-
-      addressBar.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          window.loadUrl();
-        }
-      });
     }
+
+    canvas.addEventListener('mousedown', (e) => {
+      const pos = getCanvasPos(e);
+      if (window.Module && window.Module._wasm_pointer_event) {
+        window.Module._wasm_pointer_event(pos.x, pos.y, 0); // FDM_POINTER_DOWN = 0
+      }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      const pos = getCanvasPos(e);
+      if (window.Module && window.Module._wasm_pointer_event) {
+        window.Module._wasm_pointer_event(pos.x, pos.y, 1); // FDM_POINTER_MOVE = 1
+      }
+    });
+
+    canvas.addEventListener('mouseup', (e) => {
+      const pos = getCanvasPos(e);
+      if (window.Module && window.Module._wasm_pointer_event) {
+        window.Module._wasm_pointer_event(pos.x, pos.y, 2); // FDM_POINTER_UP = 2
+      }
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 50);
+      if (window.Module && window.Module._wasm_scroll_event) {
+        window.Module._wasm_scroll_event(delta);
+      }
+    }, { passive: false });
 
     window.loadUrl = function() {
       const url = document.getElementById('address-bar').value;
       window.TactileBrowserWasm.loadUrl(url);
     };
 
-    setupAddressBarInteractions();
+    const addressBar = document.getElementById('address-bar');
+    addressBar.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        window.loadUrl();
+      }
+    });
   </script>
 </body>
 </html>

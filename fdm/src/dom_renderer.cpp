@@ -2,7 +2,6 @@
 #include "css_parser.h"
 #include "html_parser.h"
 #include "layout_engine.h"
-#include "tactilebrowser_core.h"
 #include "url_utils.h"
 #include <ctype.h>
 #include <lexbor/dom/interfaces/node.h>
@@ -24,7 +23,7 @@ static char *copy_node_text(lxb_dom_node_t *node, size_t *length) {
 
   char *copy = NULL;
   if (text && text_len > 0) {
-    copy = safe_strndup((const char *)text, text_len);
+    copy = fdm_strndup((const char *)text, text_len);
   }
 
   if (text) {
@@ -43,7 +42,7 @@ static char *copy_node_text(lxb_dom_node_t *node, size_t *length) {
 static bool rel_contains_stylesheet(const char *rel, size_t length) {
   if (!rel || length == 0)
     return false;
-  char *lowered = safe_strndup(rel, length);
+  char *lowered = fdm_strndup(rel, length);
   if (!lowered)
     return false;
   for (size_t i = 0; i < length; ++i) {
@@ -94,7 +93,7 @@ static void parse_and_apply_css_block(LayoutBox *target_box,
 static void apply_css_block(LayoutBox *target_box, const char *declarations) {
   if (!target_box || !declarations)
     return;
-  char *copy = safe_strdup(declarations);
+  char *copy = fdm_strdup(declarations);
   if (!copy)
     return;
   parse_and_apply_css_block(target_box, copy);
@@ -106,22 +105,21 @@ static void import_external_stylesheet(const char *href, size_t href_len,
                                        const char *base_url) {
   if (!href || href_len == 0 || !html_parser.download_html)
     return;
-  char *href_copy = safe_strndup(href, href_len);
+  char *href_copy = fdm_strndup(href, href_len);
   if (!href_copy)
     return;
 
-  char *absolute_url = tactilebrowser_resolve_url(base_url, href_copy);
+  char *absolute_url = fdm_resolve_url(base_url, href_copy);
   free(href_copy);
   if (!absolute_url)
     return;
 
-  MemoryBuffer css_buffer;
-  memory_buffer_init(&css_buffer);
-  RenderResult result = html_parser.download_html(absolute_url, &css_buffer);
-  if (result == RENDER_SUCCESS && css_buffer.data && css_buffer.size > 0) {
+  FdmBuffer css_buffer = {0};
+  FdmResult result = html_parser.download_html(absolute_url, &css_buffer);
+  if (result == FDM_OK && css_buffer.data && css_buffer.size > 0) {
     css_parser_add_stylesheet(css_buffer.data, css_buffer.size);
   }
-  memory_buffer_free(&css_buffer);
+  fdm_buffer_free(&css_buffer);
   free(absolute_url);
 }
 
@@ -165,7 +163,7 @@ static void collect_stylesheets(lxb_dom_node_t *node, const char *base_url) {
 }
 
 static LayoutNode *build_layout_tree_from_dom(lxb_dom_node_t *dom_node,
-                                              RenderContext *context) {
+                                              FdmSession *session) {
   if (!dom_node)
     return NULL;
 
@@ -224,7 +222,7 @@ static LayoutNode *build_layout_tree_from_dom(lxb_dom_node_t *dom_node,
     const char *type_attr =
         html_parser.get_element_attr(element, "type", &type_len);
     if (type_attr && type_len > 0) {
-      char *lowered = safe_strndup(type_attr, type_len);
+      char *lowered = fdm_strndup(type_attr, type_len);
       if (lowered) {
         for (size_t i = 0; i < type_len; ++i) {
           lowered[i] = (char)tolower((unsigned char)lowered[i]);
@@ -312,15 +310,14 @@ static LayoutNode *build_layout_tree_from_dom(lxb_dom_node_t *dom_node,
     const char *value_attr =
         html_parser.get_element_attr(element, "value", &value_len);
     if (value_attr && value_len > 0) {
-      layout_node->form_value = safe_strndup(value_attr, value_len);
+      layout_node->form_value = fdm_strndup(value_attr, value_len);
     }
 
     size_t placeholder_len = 0;
     const char *placeholder_attr =
         html_parser.get_element_attr(element, "placeholder", &placeholder_len);
     if (placeholder_attr && placeholder_len > 0) {
-      layout_node->placeholder =
-          safe_strndup(placeholder_attr, placeholder_len);
+      layout_node->placeholder = fdm_strndup(placeholder_attr, placeholder_len);
     }
   } else if (elem_type == ELEMENT_TEXTAREA) {
     size_t area_len = 0;
@@ -338,15 +335,13 @@ static LayoutNode *build_layout_tree_from_dom(lxb_dom_node_t *dom_node,
     const char *href_attr =
         html_parser.get_element_attr(element, "href", &href_len);
     if (href_attr && href_len > 0) {
-      layout_node->href = safe_strndup(href_attr, href_len);
-      layout_node->box.color = 0x0000EE; // Blue for links
+      layout_node->href = fdm_strndup(href_attr, href_len);
 
       if (layout_node->href) {
-        char *absolute_url = tactilebrowser_resolve_url(context->document_url,
-                                                        layout_node->href);
+        char *absolute_url = fdm_resolve_url(session->url, layout_node->href);
         if (absolute_url) {
           layout_node->href_resolved = absolute_url;
-          char *path_only = tactilebrowser_extract_path(absolute_url);
+          char *path_only = fdm_extract_path(absolute_url);
           if (path_only) {
             layout_node->href_path = path_only;
           }
@@ -357,7 +352,7 @@ static LayoutNode *build_layout_tree_from_dom(lxb_dom_node_t *dom_node,
 
   // Apply tag-level selectors
   if (tag && tag_len > 0) {
-    char *selector = safe_strndup(tag, tag_len);
+    char *selector = fdm_strndup(tag, tag_len);
     if (selector) {
       for (size_t i = 0; i < tag_len; ++i) {
         selector[i] = (char)tolower((unsigned char)selector[i]);
@@ -375,7 +370,7 @@ static LayoutNode *build_layout_tree_from_dom(lxb_dom_node_t *dom_node,
   const char *class_attr =
       html_parser.get_element_attr(element, "class", &class_len);
   if (class_attr && class_len > 0) {
-    char *classes = safe_strndup(class_attr, class_len);
+    char *classes = fdm_strndup(class_attr, class_len);
     if (classes) {
       char *saveptr = NULL;
       char *token = strtok_r(classes, " \t\r\n", &saveptr);
@@ -424,7 +419,7 @@ static LayoutNode *build_layout_tree_from_dom(lxb_dom_node_t *dom_node,
   const char *style_attr =
       html_parser.get_element_attr(element, "style", &style_len);
   if (style_attr && style_len > 0) {
-    char *style_copy = safe_strndup(style_attr, style_len);
+    char *style_copy = fdm_strndup(style_attr, style_len);
     if (style_copy) {
       parse_and_apply_css_block(&layout_node->box, style_copy);
       free(style_copy);
@@ -439,7 +434,7 @@ static LayoutNode *build_layout_tree_from_dom(lxb_dom_node_t *dom_node,
                          layout_node->text_content[0] == '\0')) {
     lxb_dom_node_t *child = html_parser.get_first_child(dom_node);
     while (child) {
-      LayoutNode *child_layout = build_layout_tree_from_dom(child, context);
+      LayoutNode *child_layout = build_layout_tree_from_dom(child, session);
       if (child_layout) {
         layout_node_add_child(layout_node, child_layout);
       }
@@ -450,120 +445,46 @@ static LayoutNode *build_layout_tree_from_dom(lxb_dom_node_t *dom_node,
   return layout_node;
 }
 
-static RenderResult dom_renderer_render_document(lxb_html_document_t *document,
-                                                 RenderContext *context) {
-  if (!document || !context || !context->renderer)
-    return RENDER_ERROR_UNKNOWN;
+FdmResult dom_renderer_render_document(lxb_html_document_t *document,
+                                       FdmSession *session) {
+  if (!document || !session)
+    return FDM_ERR_UNKNOWN;
 
   // Collect stylesheets
   css_parser_reset();
   lxb_dom_element_t *root =
       lxb_dom_document_element(lxb_dom_interface_document(document));
   if (root) {
-    collect_stylesheets(lxb_dom_interface_node(root), context->document_url);
+    collect_stylesheets(lxb_dom_interface_node(root), session->url);
   }
 
   // Get body
   lxb_dom_element_t *body = html_parser.find_body_element(document);
   if (!body)
-    return RENDER_ERROR_PARSE;
+    return FDM_ERR_PARSE;
 
-  // Clear container
-  if (context->renderer->interface->clear_container) {
-    context->renderer->interface->clear_container(context->renderer,
-                                                  context->root_container);
+  // Drop the previous document's layout tree
+  if (session->root) {
+    layout_node_destroy(session->root);
+    session->root = NULL;
   }
 
   // Build layout tree from DOM
   LayoutNode *layout_root =
-      build_layout_tree_from_dom(lxb_dom_interface_node(body), context);
-  if (layout_root) {
-    // Calculate dimensions
-    layout_calculate_dimensions(layout_root, context->max_width);
+      build_layout_tree_from_dom(lxb_dom_interface_node(body), session);
+  if (!layout_root)
+    return FDM_ERR_PARSE;
+  session->root = layout_root;
 
-    // Position nodes
-    layout_position_node(layout_root, 0, 10);
+  // Layout + paint
+  fdm_layout_document(session);
+  fdm_paint_document(session);
 
-    // Render to screen
-    layout_render_tree(layout_root, context);
-
-    // Update context Y position
-    context->current_y =
-        layout_root->box.y + layout_get_total_height(&layout_root->box);
-
-    // Cleanup
-    layout_node_destroy(layout_root);
-  }
-
-  return RENDER_SUCCESS;
+  return FDM_OK;
 }
-
-// Stub implementations for backwards compatibility (unused now)
-static void dom_renderer_render_node(lxb_dom_node_t *node,
-                                     RenderContext *context) {
-  (void)node;
-  (void)context;
-}
-
-static void *dom_renderer_create_element_widget(ElementType type,
-                                                RenderContext *context,
-                                                const char *text) {
-  (void)type;
-  (void)context;
-  (void)text;
-  return NULL;
-}
-
-static void dom_renderer_apply_styles(void *widget, RenderContext *context,
-                                      const char *style) {
-  (void)widget;
-  (void)context;
-  (void)style;
-}
-
-// Global DOM renderer instance
-DomRendererInterface dom_renderer = {
-    .render_document = dom_renderer_render_document,
-    .render_node = dom_renderer_render_node,
-    .create_element_widget = dom_renderer_create_element_widget,
-    .apply_styles = dom_renderer_apply_styles};
 
 // Initialize DOM renderer
 bool dom_renderer_init(void) { return layout_engine_init(); }
 
 // Cleanup DOM renderer
 void dom_renderer_cleanup(void) { layout_engine_cleanup(); }
-
-// Main rendering function
-RenderResult render_html_to_container(const char *url, RenderContext *context) {
-  if (!url || !context)
-    return RENDER_ERROR_UNKNOWN;
-
-  // Download HTML
-  MemoryBuffer buffer = {0};
-  RenderResult download_result = html_parser.download_html(url, &buffer);
-  if (download_result != RENDER_SUCCESS) {
-    return download_result;
-  }
-
-  if (!buffer.data || buffer.size == 0) {
-    return RENDER_ERROR_NETWORK;
-  }
-
-  // Parse HTML
-  lxb_html_document_t *document =
-      html_parser.parse_html(buffer.data, buffer.size);
-  if (!document) {
-    free(buffer.data);
-    return RENDER_ERROR_PARSE;
-  }
-
-  // Render document using THE POWER ENGINE
-  RenderResult render_result = dom_renderer.render_document(document, context);
-
-  // Cleanup
-  lxb_html_document_destroy(document);
-  free(buffer.data);
-
-  return render_result;
-}
