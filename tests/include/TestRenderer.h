@@ -1,41 +1,50 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
-#include <memory>
 #include <string>
 #include <vector>
 
-#include "tactilebrowser_core.h"
+#include "fdm.h"
 
-struct TestWidget {
+// A test surface that records every FdmSurfaceOps call into a command list.
+enum class OpKind {
+  BeginFrame,
+  EndFrame,
+  FillRect,
+  FillGradient,
+  DrawText,
+};
+
+struct Op {
+  OpKind kind;
   int x = 0;
   int y = 0;
-  int width = 0;
-  int height = 0;
-  bool is_container = false;
-  bool is_text = false;
-  bool is_input = false;
-  bool bg_set = false;
-  uint32_t bg_color = 0;
-  bool gradient_set = false;
-  LinearGradientFill gradient{};
+  int w = 0;
+  int h = 0;
+  uint32_t color = 0;
   std::string text;
-  TestWidget *parent = nullptr;
-  std::vector<TestWidget *> children;
+  int font_size = 0;
+  int align = 0;
+  bool underline = false;
+  std::array<uint32_t, FDM_MAX_GRADIENT_STOPS> stop_colors{};
+  std::array<float, FDM_MAX_GRADIENT_STOPS> stop_positions{};
+  size_t stop_count = 0;
+  float angle_deg = 0;
 };
 
 struct TestRendererState {
-  TestWidget root;
-  std::vector<std::unique_ptr<TestWidget>> owned;
+  FdmSurface surface;
+  std::vector<Op> ops;
   std::vector<std::string> link_targets;
 
   void reset();
+  void clear_ops();
+  const Op *find_fill(uint32_t color) const;
+  const Op *find_gradient() const;
+  const Op *find_text(const std::string &text) const;
+  bool has_text(const std::string &text) const;
 };
 
 TestRendererState &test_renderer_state();
-RenderInterface *test_renderer_interface();
 void test_renderer_setup();
-TestWidget *test_renderer_root();
-TestWidget *test_find_child_by_text(TestWidget *parent,
-                                    const std::string &text);
-TestWidget *test_find_first_container(TestWidget *parent);

@@ -1,0 +1,6 @@
+# fdm_reftest skip patterns
+# Uncomment/set values to disable known-failing tests while a
+# fix lands.
+#
+# example:
+# css/CSS2/themes/reference-pure-black-support.html

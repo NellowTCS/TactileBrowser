@@ -1,5 +1,5 @@
 #include "html_parser.h"
-#include "tactilebrowser_core.h"
+#include "fdm.h"
 #include <ctype.h>
 #include <lexbor/dom/interfaces/node.h>
 #include <lexbor/tag/tag.h>
@@ -7,15 +7,14 @@
 #include <string.h>
 
 // Default HTML downloader (placeholder)
-static RenderResult default_download_html(const char *url,
-                                          MemoryBuffer *buffer) {
+static FdmResult default_download_html(const char *url, FdmBuffer *buffer) {
   // This should be overridden by platform-specific implementation
-  return RENDER_ERROR_NETWORK;
+  return FDM_ERR_NETWORK;
 }
 
 // HTML parser interface implementation
-static RenderResult html_parser_download_html(const char *url,
-                                              MemoryBuffer *buffer) {
+static FdmResult html_parser_download_html(const char *url,
+                                           FdmBuffer *buffer) {
   return default_download_html(url, buffer);
 }
 
@@ -37,24 +36,24 @@ static lxb_html_document_t *html_parser_parse_html(const char *html,
 
 static char *html_parser_extract_title(lxb_html_document_t *document) {
   if (!document)
-    return safe_strdup("Untitled");
+    return fdm_strdup("Untitled");
 
   lxb_dom_element_t *root =
       lxb_dom_document_element(lxb_dom_interface_document(document));
   if (!root)
-    return safe_strdup("Untitled");
+    return fdm_strdup("Untitled");
 
   lxb_dom_collection_t *collection =
       lxb_dom_collection_make(lxb_dom_interface_document(document), 16);
   if (!collection)
-    return safe_strdup("Untitled");
+    return fdm_strdup("Untitled");
 
   lxb_status_t status = lxb_dom_elements_by_tag_name(
       root, collection, (const lxb_char_t *)"title", 5);
 
   if (status != LXB_STATUS_OK || lxb_dom_collection_length(collection) == 0) {
     lxb_dom_collection_destroy(collection, true);
-    return safe_strdup("Untitled");
+    return fdm_strdup("Untitled");
   }
 
   lxb_dom_element_t *title_element = lxb_dom_collection_element(collection, 0);
@@ -62,9 +61,9 @@ static char *html_parser_extract_title(lxb_html_document_t *document) {
   lxb_char_t *text = lxb_dom_node_text_content(
       lxb_dom_interface_node(title_element), &text_len);
 
-  char *result = safe_strdup("Untitled");
+  char *result = fdm_strdup("Untitled");
   if (text && text_len > 0) {
-    result = safe_strndup((const char *)text, text_len);
+    result = fdm_strndup((const char *)text, text_len);
   }
 
   if (text)
@@ -88,7 +87,7 @@ static char *html_parser_extract_text_content(lxb_html_document_t *document) {
 
   char *result = NULL;
   if (text && text_len > 0) {
-    result = safe_strndup((const char *)text, text_len);
+    result = fdm_strndup((const char *)text, text_len);
   }
 
   if (text)
@@ -144,7 +143,7 @@ static char *html_parser_get_element_text(lxb_dom_element_t *element,
 
   char *copy = NULL;
   if (text && text_len > 0) {
-    copy = safe_strndup((const char *)text, text_len);
+    copy = fdm_strndup((const char *)text, text_len);
   }
 
   if (text) {

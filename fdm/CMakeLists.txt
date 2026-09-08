@@ -41,12 +41,12 @@ if(DEFINED ENV{IDF_PATH})
     target_link_libraries(lexbor_static PRIVATE m)
 
     # Create core library without lexbor sources
-    add_library(tactilebrowser_core STATIC ${CORE_SOURCES})
-    target_include_directories(tactilebrowser_core PUBLIC
+    add_library(fdm STATIC ${CORE_SOURCES})
+    target_include_directories(fdm PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/lexbor/source
     )
-    target_link_libraries(tactilebrowser_core PRIVATE lexbor_static)
+    target_link_libraries(fdm PRIVATE lexbor_static)
 else()
     # Regular CMake build - include lexbor sources in core library
     file(GLOB_RECURSE LEXBOR_SOURCES
@@ -75,13 +75,13 @@ else()
     list(APPEND LEXBOR_SOURCES ${LEXBOR_POSIX_SOURCES})
 
     # Create core library with lexbor sources included
-    add_library(tactilebrowser_core STATIC ${CORE_SOURCES} ${LEXBOR_SOURCES})
-    target_include_directories(tactilebrowser_core PUBLIC
+    add_library(fdm STATIC ${CORE_SOURCES} ${LEXBOR_SOURCES})
+    target_include_directories(fdm PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/lexbor/source
     )
-    target_compile_definitions(tactilebrowser_core PRIVATE LEXBOR_STATIC)
+    target_compile_definitions(fdm PRIVATE LEXBOR_STATIC)
 endif()
 
 # Set C++ standard
-set_target_properties(tactilebrowser_core PROPERTIES CXX_STANDARD 17)
+set_target_properties(fdm PROPERTIES CXX_STANDARD 17)

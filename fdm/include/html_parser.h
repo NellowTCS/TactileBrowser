@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common_types.h"
+#include "fdm_internal.h"
 #include <lexbor/dom/interfaces/document.h>
 #include <lexbor/dom/interfaces/element.h>
 #include <lexbor/html/html.h>
@@ -12,7 +12,7 @@ extern "C" {
 // HTML parser interface
 typedef struct {
   // Download HTML content from URL
-  RenderResult (*download_html)(const char *url, MemoryBuffer *buffer);
+  FdmResult (*download_html)(const char *url, FdmBuffer *buffer);
   // Parse HTML document
   lxb_html_document_t *(*parse_html)(const char *html, size_t length);
   // Extract title from document
@@ -37,17 +37,15 @@ typedef struct {
 // Global HTML parser instance
 extern HtmlParserInterface html_parser;
 
-// Initialize HTML parser
+// Initialize/cleanup the HTML parser
 bool html_parser_init(void);
-
-// Cleanup HTML parser
 void html_parser_cleanup(void);
 
-// Determine element type from Lexbor element (pure native Lexbor approach)
+// Determine element type from Lexbor element
 ElementType get_element_type_from_element(lxb_dom_element_t *element);
 
 // Color table for named colors
-extern const ColorEntry color_table[];
+extern const FdmColorEntry color_table[];
 extern const size_t color_table_size;
 
 #ifdef __cplusplus

@@ -8,7 +8,7 @@
 static unsigned int serialize_callback(const lxb_char_t *data, size_t len,
                                        void *ctx) {
   if (!ctx || !data || len == 0) {
-    return len;
+    return 0;
   }
 
   char **buffer_ptr = (char **)ctx;
@@ -16,11 +16,10 @@ static unsigned int serialize_callback(const lxb_char_t *data, size_t len,
     return 0;
 
   strncat(*buffer_ptr, (const char *)data, len);
-  return len;
+  return 0;
 }
 
-char *tactilebrowser_resolve_url(const char *base_url,
-                                 const char *candidate_url) {
+char *fdm_resolve_url(const char *base_url, const char *candidate_url) {
   if (!candidate_url) {
     return nullptr;
   }
@@ -81,7 +80,7 @@ char *tactilebrowser_resolve_url(const char *base_url,
   return result;
 }
 
-char *tactilebrowser_extract_path(const char *absolute_url) {
+char *fdm_extract_path(const char *absolute_url) {
   if (!absolute_url) {
     return nullptr;
   }

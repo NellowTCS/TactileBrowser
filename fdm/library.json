@@ -1,7 +1,7 @@
 {
-  "name": "tactilebrowser_core",
+  "name": "fdm",
   "version": "1.0.0",
-  "description": "Core library for TactileBrowser with HTML parsing and rendering",
+  "description": "Fundamental (fdm): a small, portable browser engine core.",
   "keywords": "html, parser, browser, lexbor",
   "repository": {
     "type": "git",

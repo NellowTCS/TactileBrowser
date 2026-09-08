@@ -2,14 +2,6 @@
 [![Build TactileBrowser](https://github.com/NellowTCS/TactileBrowser/actions/workflows/autobuild.yml/badge.svg)](https://github.com/NellowTCS/TactileBrowser/actions/workflows/autobuild.yml)  
 An app meant as a web browser for ESP32 and ESP32-S3 devices.
 
-
-<!--
-Use this for ESP-IDF
-```
-. $HOME/esp/esp-idf/export.sh
-```
--->
-
 This will use, eventually, Elk for the desktop version and Duktape for the ESP32 version for JS.
 
 ## Building

@@ -1,14 +1,341 @@
 #include "lvgl_renderer.h"
 #include <esp_http_client.h>
+#include <lvgl/fonts.h>
 #include <stdlib.h>
 #include <string.h>
 
-// ESP32 HTTP downloader implementation
-RenderResult esp32_download_html(const char *url, MemoryBuffer *buffer) {
-  if (!url || !buffer)
-    return RENDER_ERROR_UNKNOWN;
+// Immediate-mode canvas renderer using LVGL 9.4 canvas buffer & draw layer API.
+// No widgets (labels, buttons, etc.) are created per DOM element; instead,
+// all rectangles and text are drawn directly into an immediate-mode draw buffer.
 
-  // HTTP client configuration
+typedef struct {
+  lv_obj_t *canvas;
+  lv_draw_buf_t *draw_buf;
+  lv_layer_t layer;
+  int width;
+  int height;
+} LvglCanvasSurface;
+
+typedef struct {
+  bool pressed;
+  bool scrolling;
+  int32_t start_x;
+  int32_t start_y;
+  int32_t last_x;
+  int32_t last_y;
+} LvglPointerState;
+
+// Tactility OS handles font management via its lvgl-module.
+// We map font sizes to the OS's font abstractions to avoid missing symbols.
+static const lv_font_t *lvgl_font_for_size(int font_size) {
+  if (font_size <= 12) {
+    return lvgl_get_text_font(FONT_SIZE_SMALL);
+  } else if (font_size <= 18) {
+    return lvgl_get_text_font(FONT_SIZE_DEFAULT);
+  } else {
+    return lvgl_get_text_font(FONT_SIZE_LARGE);
+  }
+}
+
+static void lvgl_begin_frame(FdmSurface *surface, int width, int height) {
+  LvglCanvasSurface *cs = (LvglCanvasSurface *)surface->platform_data;
+  if (!cs)
+    return;
+
+  if (width <= 0)
+    width = 320;
+  if (height <= 0)
+    height = 240;
+
+  if (!cs->draw_buf || cs->width != width || cs->height != height) {
+    if (cs->draw_buf) {
+      lv_draw_buf_destroy(cs->draw_buf);
+    }
+    cs->width = width;
+    cs->height = height;
+    cs->draw_buf = lv_draw_buf_create((uint32_t)width, (uint32_t)height,
+                                      LV_COLOR_FORMAT_ARGB8888, LV_STRIDE_AUTO);
+    if (cs->draw_buf) {
+      lv_canvas_set_draw_buf(cs->canvas, cs->draw_buf);
+    }
+    lv_obj_set_size(cs->canvas, width, height);
+  }
+
+  if (cs->draw_buf) {
+    lv_canvas_init_layer(cs->canvas, &cs->layer);
+    // Clear canvas background to white
+    lv_draw_rect_dsc_t bg_dsc;
+    lv_draw_rect_dsc_init(&bg_dsc);
+    bg_dsc.bg_color = lv_color_white();
+    bg_dsc.bg_opa = LV_OPA_COVER;
+    lv_area_t bg_area = {0, 0, (int32_t)(width - 1), (int32_t)(height - 1)};
+    lv_draw_rect(&cs->layer, &bg_dsc, &bg_area);
+  }
+}
+
+static void lvgl_end_frame(FdmSurface *surface) {
+  LvglCanvasSurface *cs = (LvglCanvasSurface *)surface->platform_data;
+  if (!cs || !cs->draw_buf)
+    return;
+  lv_canvas_finish_layer(cs->canvas, &cs->layer);
+  lv_obj_invalidate(cs->canvas);
+}
+
+static void lvgl_fill_rect(FdmSurface *surface, int x, int y, int w, int h,
+                           FdmColor color) {
+  LvglCanvasSurface *cs = (LvglCanvasSurface *)surface->platform_data;
+  if (!cs || !cs->draw_buf || w <= 0 || h <= 0)
+    return;
+
+  lv_draw_rect_dsc_t dsc;
+  lv_draw_rect_dsc_init(&dsc);
+  dsc.bg_color = lv_color_hex(color);
+  dsc.bg_opa = LV_OPA_COVER;
+  lv_area_t area = {
+      (int32_t)x,
+      (int32_t)y,
+      (int32_t)(x + w - 1),
+      (int32_t)(y + h - 1),
+  };
+  lv_draw_rect(&cs->layer, &dsc, &area);
+}
+
+static lv_grad_dir_t lvgl_gradient_dir(float angle_deg) {
+  float normalized = angle_deg;
+  while (normalized < 0.0f)
+    normalized += 360.0f;
+  while (normalized >= 360.0f)
+    normalized -= 360.0f;
+  if ((normalized >= 45.0f && normalized < 135.0f) ||
+      (normalized >= 225.0f && normalized < 315.0f)) {
+    return LV_GRAD_DIR_HOR;
+  }
+  return LV_GRAD_DIR_VER;
+}
+
+static void lvgl_fill_rect_gradient(FdmSurface *surface, int x, int y, int w,
+                                    int h,
+                                    const FdmLinearGradient *gradient) {
+  LvglCanvasSurface *cs = (LvglCanvasSurface *)surface->platform_data;
+  if (!cs || !cs->draw_buf || !gradient || gradient->stop_count == 0 || w <= 0 ||
+      h <= 0)
+    return;
+
+  FdmColor start = gradient->stops[0].color;
+  FdmColor end = gradient->stops[gradient->stop_count - 1].color;
+
+  lv_draw_rect_dsc_t dsc;
+  lv_draw_rect_dsc_init(&dsc);
+  dsc.bg_color = lv_color_hex(start);
+  dsc.bg_opa = LV_OPA_COVER;
+
+  dsc.bg_grad.stops[0].color = lv_color_hex(start);
+  dsc.bg_grad.stops[0].opa = LV_OPA_COVER;
+  dsc.bg_grad.stops[0].frac = 0;
+  dsc.bg_grad.stops[1].color = lv_color_hex(end);
+  dsc.bg_grad.stops[1].opa = LV_OPA_COVER;
+  dsc.bg_grad.stops[1].frac = 255;
+  dsc.bg_grad.stops_count = 2;
+  dsc.bg_grad.dir = lvgl_gradient_dir(gradient->angle_deg);
+
+  lv_area_t area = {
+      (int32_t)x,
+      (int32_t)y,
+      (int32_t)(x + w - 1),
+      (int32_t)(y + h - 1),
+  };
+  lv_draw_rect(&cs->layer, &dsc, &area);
+}
+
+static void lvgl_draw_text(FdmSurface *surface, const char *text, int x, int y,
+                           int max_width, int font_size, FdmColor color,
+                           int align, bool underline) {
+  LvglCanvasSurface *cs = (LvglCanvasSurface *)surface->platform_data;
+  if (!cs || !cs->draw_buf || !text || text[0] == '\0')
+    return;
+
+  lv_draw_label_dsc_t dsc;
+  lv_draw_label_dsc_init(&dsc);
+  dsc.text = text;
+  dsc.font = lvgl_font_for_size(font_size);
+  dsc.color = lv_color_hex(color);
+
+  if (align == FDM_ALIGN_CENTER)
+    dsc.align = LV_TEXT_ALIGN_CENTER;
+  else if (align == FDM_ALIGN_RIGHT)
+    dsc.align = LV_TEXT_ALIGN_RIGHT;
+  else
+    dsc.align = LV_TEXT_ALIGN_LEFT;
+
+  if (underline)
+    dsc.decor = LV_TEXT_DECOR_UNDERLINE;
+
+  int w = max_width > 0 ? max_width : 2000;
+  int h = font_size + 8;
+  lv_area_t area = {
+      (int32_t)x,
+      (int32_t)y,
+      (int32_t)(x + w - 1),
+      (int32_t)(y + h - 1),
+  };
+  lv_draw_label(&cs->layer, &dsc, &area);
+}
+
+static int lvgl_measure_text(FdmSurface *surface, const char *text,
+                             int font_size) {
+  (void)surface;
+  if (!text || text[0] == '\0')
+    return 0;
+  const lv_font_t *font = lvgl_font_for_size(font_size);
+  lv_point_t size = {0, 0};
+  lv_text_get_size(&size, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+  return (int)size.x;
+}
+
+static const FdmSurfaceOps lvgl_surface_ops = {
+    lvgl_begin_frame,
+    lvgl_end_frame,
+    lvgl_fill_rect,
+    lvgl_fill_rect_gradient,
+    lvgl_draw_text,
+    lvgl_measure_text,
+};
+
+FdmSurface *lvgl_surface_create(lv_obj_t *parent) {
+  if (!parent)
+    return NULL;
+
+  FdmSurface *surface = (FdmSurface *)malloc(sizeof(FdmSurface));
+  LvglCanvasSurface *cs =
+      (LvglCanvasSurface *)malloc(sizeof(LvglCanvasSurface));
+  LvglPointerState *state = (LvglPointerState *)malloc(sizeof(LvglPointerState));
+
+  if (!surface || !cs || !state) {
+    free(surface);
+    free(cs);
+    free(state);
+    return NULL;
+  }
+
+  memset(cs, 0, sizeof(*cs));
+  memset(state, 0, sizeof(*state));
+
+  cs->canvas = lv_canvas_create(parent);
+  lv_obj_add_flag(cs->canvas, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(cs->canvas, LV_OBJ_FLAG_SCROLLABLE);
+
+  surface->ops = &lvgl_surface_ops;
+  surface->platform_data = cs;
+  surface->user_data = state;
+  return surface;
+}
+
+void lvgl_surface_destroy(FdmSurface *surface) {
+  if (!surface)
+    return;
+  LvglCanvasSurface *cs = (LvglCanvasSurface *)surface->platform_data;
+  if (cs) {
+    if (cs->draw_buf) {
+      lv_draw_buf_destroy(cs->draw_buf);
+    }
+    free(cs);
+  }
+  free(surface->user_data);
+  free(surface);
+}
+
+static void lvgl_surface_container_origin(const lv_obj_t *container,
+                                          int32_t *origin_x,
+                                          int32_t *origin_y) {
+  int32_t x = 0;
+  int32_t y = 0;
+  for (const lv_obj_t *obj = container; obj != NULL;
+       obj = lv_obj_get_parent(obj)) {
+    x += lv_obj_get_x(obj);
+    y += lv_obj_get_y(obj);
+  }
+  *origin_x = x;
+  *origin_y = y;
+}
+
+void lvgl_surface_handle_event(FdmSurface *surface, lv_event_t *event) {
+  if (!surface)
+    return;
+  LvglCanvasSurface *cs = (LvglCanvasSurface *)surface->platform_data;
+  if (!cs || !cs->canvas)
+    return;
+
+  lv_indev_t *indev = lv_indev_active();
+  if (!indev)
+    return;
+  lv_point_t point;
+  lv_indev_get_point(indev, &point);
+
+  int32_t origin_x = 0;
+  int32_t origin_y = 0;
+  lvgl_surface_container_origin(cs->canvas, &origin_x, &origin_y);
+  const int32_t local_x = point.x - origin_x;
+  const int32_t local_y = point.y - origin_y;
+
+  LvglPointerState *state = (LvglPointerState *)surface->user_data;
+  if (!state)
+    return;
+
+  lv_event_code_t code = lv_event_get_code(event);
+  switch (code) {
+  case LV_EVENT_PRESSED:
+    state->pressed = true;
+    state->scrolling = false;
+    state->start_x = local_x;
+    state->start_y = local_y;
+    state->last_x = local_x;
+    state->last_y = local_y;
+    fdm_handle_pointer(surface, local_x, local_y, FDM_POINTER_DOWN);
+    break;
+  case LV_EVENT_PRESSING: {
+    if (!state->pressed)
+      break;
+    const int32_t dy = local_y - state->last_y;
+    state->last_x = local_x;
+    state->last_y = local_y;
+
+    if (!state->scrolling) {
+      const int32_t total_dx = local_x - state->start_x;
+      const int32_t total_dy = local_y - state->start_y;
+      const int32_t threshold = 12;
+      const bool vertical_drag =
+          (total_dy > threshold && total_dy > abs(total_dx)) ||
+          (total_dy < -threshold && -total_dy > abs(total_dx));
+      if (vertical_drag)
+        state->scrolling = true;
+    }
+
+    if (state->scrolling) {
+      fdm_scroll_by(surface, -dy);
+    } else {
+      fdm_handle_pointer(surface, local_x, local_y, FDM_POINTER_MOVE);
+    }
+    break;
+  }
+  case LV_EVENT_RELEASED:
+    if (!state->pressed)
+      break;
+    if (!state->scrolling) {
+      fdm_handle_pointer(surface, local_x, local_y, FDM_POINTER_UP);
+    }
+    state->pressed = false;
+    state->scrolling = false;
+    break;
+  default:
+    break;
+  }
+}
+
+// ESP32 HTTP downloader
+FdmResult esp32_download_html(const char *url, FdmBuffer *buffer) {
+  if (!url || !buffer)
+    return FDM_ERR_UNKNOWN;
+
   esp_http_client_config_t cfg = {};
   cfg.url = url;
   cfg.timeout_ms = 8000;
@@ -18,12 +345,12 @@ RenderResult esp32_download_html(const char *url, MemoryBuffer *buffer) {
 
   esp_http_client_handle_t client = esp_http_client_init(&cfg);
   if (!client)
-    return RENDER_ERROR_NETWORK;
+    return FDM_ERR_NETWORK;
 
   esp_err_t err = esp_http_client_open(client, 0);
   if (err != ESP_OK) {
     esp_http_client_cleanup(client);
-    return RENDER_ERROR_NETWORK;
+    return FDM_ERR_NETWORK;
   }
 
   int content_length = esp_http_client_fetch_headers(client);
@@ -31,17 +358,18 @@ RenderResult esp32_download_html(const char *url, MemoryBuffer *buffer) {
 
   if (status_code != 200) {
     esp_http_client_cleanup(client);
-    return RENDER_ERROR_NETWORK;
+    return FDM_ERR_NETWORK;
   }
 
-  if (content_length <= 0 || content_length > 6144) { // MAX_HTML_SIZE
-    content_length = 6144;
+  const int max_html_size = 6144;
+  if (content_length <= 0 || content_length > max_html_size) {
+    content_length = max_html_size;
   }
 
-  buffer->data = (char *)malloc(content_length + 1);
+  buffer->data = (char *)malloc((size_t)content_length + 1);
   if (!buffer->data) {
     esp_http_client_cleanup(client);
-    return RENDER_ERROR_MEMORY;
+    return FDM_ERR_MEMORY;
   }
 
   int read_len = esp_http_client_read(client, buffer->data, content_length);
@@ -50,187 +378,12 @@ RenderResult esp32_download_html(const char *url, MemoryBuffer *buffer) {
   if (read_len <= 0) {
     free(buffer->data);
     buffer->data = NULL;
-    return RENDER_ERROR_NETWORK;
+    buffer->size = 0;
+    return FDM_ERR_NETWORK;
   }
 
   buffer->data[read_len] = 0;
-  buffer->size = read_len;
+  buffer->size = (size_t)read_len;
 
-  return RENDER_SUCCESS;
-}
-
-// LVGL renderer implementation
-static bool lvgl_renderer_init(Renderer *renderer) {
-  // LVGL-specific initialization if needed
-  return true;
-}
-
-static void lvgl_renderer_cleanup(Renderer *renderer) {
-  // LVGL-specific cleanup if needed
-}
-
-static void *lvgl_renderer_create_label(Renderer *renderer, const char *text,
-                                        int x, int y) {
-  lv_obj_t *label = lv_label_create((lv_obj_t *)renderer->platform_data);
-  lv_label_set_text(label, text);
-  lv_obj_set_pos(label, x, y);
-  lv_obj_set_width(label, lv_pct(100));
-  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-  return label;
-}
-
-static void *lvgl_renderer_create_button(Renderer *renderer, const char *text,
-                                         int x, int y) {
-  lv_obj_t *btn = lv_btn_create((lv_obj_t *)renderer->platform_data);
-  lv_obj_set_pos(btn, x, y);
-  lv_obj_set_size(btn, 70, 35);
-
-  lv_obj_t *btn_label = lv_label_create(btn);
-  lv_label_set_text(btn_label, text);
-  lv_obj_center(btn_label);
-
-  return btn;
-}
-
-static lv_obj_t *lvgl_renderer_create_text_widget(Renderer *renderer,
-                                                  const char *value,
-                                                  const char *placeholder,
-                                                  int x, int y, int width,
-                                                  int height, bool multiline) {
-  if (!renderer || !renderer->platform_data)
-    return NULL;
-  lv_obj_t *parent = (lv_obj_t *)renderer->platform_data;
-  lv_obj_t *textarea = lv_textarea_create(parent);
-  lv_obj_set_pos(textarea, x, y);
-  lv_obj_set_size(textarea, width > 0 ? width : (multiline ? 300 : 220),
-                  height > 0 ? height : (multiline ? 120 : 40));
-  lv_textarea_set_one_line(textarea, !multiline);
-  lv_textarea_set_text(textarea, value ? value : "");
-  if (placeholder && placeholder[0] != '\0') {
-    lv_textarea_set_placeholder_text(textarea, placeholder);
-  }
-  lv_textarea_set_scrollbar_mode(textarea, LV_SCROLLBAR_MODE_AUTO);
-  lv_obj_set_style_pad_all(textarea, 6, 0);
-  lv_obj_set_style_bg_color(textarea, lv_color_hex(0x141414), 0);
-  lv_obj_set_style_bg_opa(textarea, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(textarea, lv_color_hex(0x30363D), 0);
-  lv_obj_set_style_border_width(textarea, 1, 0);
-  return textarea;
-}
-
-static void *lvgl_renderer_create_text_input(Renderer *renderer,
-                                             const char *value,
-                                             const char *placeholder, int x,
-                                             int y, int width, int height) {
-  return lvgl_renderer_create_text_widget(renderer, value, placeholder, x, y,
-                                          width, height, false);
-}
-
-static void *lvgl_renderer_create_text_area(Renderer *renderer,
-                                            const char *value, int x, int y,
-                                            int width, int height) {
-  return lvgl_renderer_create_text_widget(renderer, value, NULL, x, y, width,
-                                          height, true);
-}
-
-static void *lvgl_renderer_create_container(Renderer *renderer, int x, int y,
-                                            int width, int height) {
-  lv_obj_t *container = lv_obj_create((lv_obj_t *)renderer->platform_data);
-  lv_obj_set_pos(container, x, y);
-  lv_obj_set_size(container, width, height);
-  lv_obj_set_scroll_dir(container, LV_DIR_VER);
-  return container;
-}
-
-static void lvgl_renderer_set_text_color(Renderer *renderer, void *widget,
-                                         uint32_t color) {
-  lv_obj_set_style_text_color((lv_obj_t *)widget, lv_color_hex(color), 0);
-}
-
-static void lvgl_renderer_set_bg_color(Renderer *renderer, void *widget,
-                                       uint32_t color) {
-  lv_obj_set_style_bg_color((lv_obj_t *)widget, lv_color_hex(color), 0);
-  lv_obj_set_style_bg_opa((lv_obj_t *)widget, LV_OPA_COVER, 0);
-}
-
-static lv_grad_dir_t lvgl_renderer_gradient_dir(float angle_deg) {
-  float normalized = angle_deg;
-  while (normalized < 0.0f)
-    normalized += 360.0f;
-  while (normalized >= 360.0f)
-    normalized -= 360.0f;
-
-  if ((normalized >= 45.0f && normalized < 135.0f) ||
-      (normalized >= 225.0f && normalized < 315.0f)) {
-    return LV_GRAD_DIR_HOR;
-  }
-  return LV_GRAD_DIR_VER;
-}
-
-static void lvgl_renderer_set_bg_gradient(Renderer *renderer, void *widget,
-                                          const LinearGradientFill *gradient) {
-  (void)renderer;
-  if (!widget || !gradient || gradient->stop_count == 0)
-    return;
-
-  lv_obj_t *obj = (lv_obj_t *)widget;
-  uint32_t start_color = gradient->stops[0].color;
-  uint32_t end_color = gradient->stops[gradient->stop_count - 1].color;
-  lv_obj_set_style_bg_color(obj, lv_color_hex(start_color), 0);
-  lv_obj_set_style_bg_grad_color(obj, lv_color_hex(end_color), 0);
-  lv_obj_set_style_bg_grad_dir(
-      obj, lvgl_renderer_gradient_dir(gradient->angle_deg), 0);
-  lv_obj_set_style_bg_main_stop(obj, 0, 0);
-  lv_obj_set_style_bg_grad_stop(obj, 255, 0);
-  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
-}
-
-static void lvgl_renderer_set_text_align(Renderer *renderer, void *widget,
-                                         int align) {
-  lv_text_align_t lv_align = LV_TEXT_ALIGN_LEFT;
-  if (align == 1)
-    lv_align = LV_TEXT_ALIGN_CENTER;
-  else if (align == 2)
-    lv_align = LV_TEXT_ALIGN_RIGHT;
-  lv_obj_set_style_text_align((lv_obj_t *)widget, lv_align, 0);
-}
-
-static void lvgl_renderer_clear_container(Renderer *renderer, void *container) {
-  lv_obj_clean((lv_obj_t *)container);
-}
-
-static int lvgl_renderer_get_height(Renderer *renderer, void *widget) {
-  return lv_obj_get_height((lv_obj_t *)widget);
-}
-
-// Create LVGL renderer
-LvglRenderer *lvgl_renderer_create(void) {
-  LvglRenderer *renderer = (LvglRenderer *)malloc(sizeof(LvglRenderer));
-  if (!renderer)
-    return NULL;
-
-  renderer->base.init = lvgl_renderer_init;
-  renderer->base.cleanup = lvgl_renderer_cleanup;
-  renderer->base.create_label = lvgl_renderer_create_label;
-  renderer->base.create_button = lvgl_renderer_create_button;
-  renderer->base.create_text_input = lvgl_renderer_create_text_input;
-  renderer->base.create_text_area = lvgl_renderer_create_text_area;
-  renderer->base.register_link_handler = NULL;
-  renderer->base.create_container = lvgl_renderer_create_container;
-  renderer->base.set_text_color = lvgl_renderer_set_text_color;
-  renderer->base.set_bg_color = lvgl_renderer_set_bg_color;
-  renderer->base.set_bg_gradient = lvgl_renderer_set_bg_gradient;
-  renderer->base.set_text_align = lvgl_renderer_set_text_align;
-  renderer->base.clear_container = lvgl_renderer_clear_container;
-  renderer->base.get_height = lvgl_renderer_get_height;
-  renderer->base.platform_data = NULL;
-
-  return renderer;
-}
-
-// Destroy LVGL renderer
-void lvgl_renderer_destroy(LvglRenderer *renderer) {
-  if (renderer) {
-    free(renderer);
-  }
+  return FDM_OK;
 }

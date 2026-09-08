@@ -24,12 +24,8 @@
 
   const DEFAULT_PROXY_CHAIN = [
     {
-      label: 'CORS Proxy',
-      template: 'https://corsproxy.io/?{{URL}}'
-    },
-    {
-      label: 'AllOrigins',
-      template: 'https://api.allorigins.win/raw?url={{URL}}'
+      label: 'WasmWeb Backend',
+      template: 'https://wasmweb-backend.neeljaiswal23.workers.dev/?url={{URL}}'
     }
   ];
 
@@ -131,7 +127,7 @@
         return resp.text();
       })
       .then((html) => {
-        ModuleInstance.ccall('render_html_from_js', 'void', ['string', 'string'], [displayUrl, html]);
+        ModuleInstance.ccall('wasm_render_html', 'void', ['string', 'string'], [displayUrl, html]);
       })
       .catch((err) => {
         console.warn(`Fetch attempt via ${candidate.label || 'candidate'} failed`, err);
@@ -157,27 +153,24 @@
     fetchViaChain(displayUrl, chain, 0);
   }
 
-  // Public API used by C/C++ via EM_ASM and by the UI
   window.TactileBrowserWasm = {
-    // Called from index.html after the modularized Emscripten module is instantiated.
     init: function(modInstance) {
       ModuleInstance = modInstance;
-
       try {
         window.Module = ModuleInstance;
       } catch (e) {
         // ignore
       }
 
-      setStatus('Ready.', '#FFD93D');
-
-      if (typeof ModuleInstance.onRuntimeInitialized === 'function') {
-        const existing = ModuleInstance.onRuntimeInitialized;
-        ModuleInstance.onRuntimeInitialized = function() {
-          try { existing(); } catch (e) { console.error(e); }
-          setStatus('Ready.', '#FFD93D');
-        };
+      if (typeof ModuleInstance.ccall === 'function') {
+        try {
+          ModuleInstance.ccall('start_app', 'void', [], []);
+        } catch (e) {
+          console.error('Failed to call start_app:', e);
+        }
       }
+
+      setStatus('Ready.', '#FFD93D');
     },
 
     fetchAndRender: function(rawUrl) {
@@ -189,7 +182,6 @@
 
       if (!ModuleInstance || typeof ModuleInstance.ccall !== 'function') {
         setStatus('WASM not initialized', '#FF6B6B');
-        console.error('Attempted to fetch before WASM module was ready');
         return;
       }
 
