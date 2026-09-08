@@ -1081,3 +1081,147 @@ void fdm_paint_document(FdmSession *session) {
 
   surface->ops->end_frame(surface);
 }
+
+static const char *element_type_name(ElementType type) {
+  switch (type) {
+  case ELEMENT_PARAGRAPH:
+    return "p";
+  case ELEMENT_HEADING1:
+    return "h1";
+  case ELEMENT_HEADING2:
+    return "h2";
+  case ELEMENT_HEADING3:
+    return "h3";
+  case ELEMENT_HEADING4:
+    return "h4";
+  case ELEMENT_HEADING5:
+    return "h5";
+  case ELEMENT_HEADING6:
+    return "h6";
+  case ELEMENT_LINK:
+    return "a";
+  case ELEMENT_BUTTON:
+    return "button";
+  case ELEMENT_INPUT_TEXT:
+    return "input";
+  case ELEMENT_TEXTAREA:
+    return "textarea";
+  case ELEMENT_DIV:
+    return "div";
+  case ELEMENT_SPAN:
+    return "span";
+  case ELEMENT_STRONG:
+    return "strong";
+  case ELEMENT_EM:
+    return "em";
+  case ELEMENT_BOLD:
+    return "b";
+  case ELEMENT_ITALIC:
+    return "i";
+  case ELEMENT_UNDERLINE:
+    return "u";
+  case ELEMENT_LIST_ITEM:
+    return "li";
+  case ELEMENT_ORDERED_LIST:
+    return "ol";
+  case ELEMENT_UNORDERED_LIST:
+    return "ul";
+  case ELEMENT_IMAGE:
+    return "img";
+  case ELEMENT_CONTAINER:
+    return "container";
+  case ELEMENT_BREAK:
+    return "br";
+  case ELEMENT_HORIZONTAL_RULE:
+    return "hr";
+  default:
+    return "?";
+  }
+}
+
+static void dump_background(char *out, size_t out_size,
+                            const LayoutBox *box) {
+  const char *type_str = "none";
+  if (box->background.type == BACKGROUND_FILL_LINEAR_GRADIENT) {
+    const FdmLinearGradient *gradient = &box->background.data.linear;
+    int used = snprintf(out, out_size, "linear-gradient(%.0fdeg",
+                        (double)gradient->angle_deg);
+    for (size_t i = 0; i < gradient->stop_count && used < (int)out_size; ++i) {
+      used += snprintf(out + used, (size_t)((int)out_size - used), ",#%06X",
+                       gradient->stops[i].color);
+    }
+    snprintf(out + used, (size_t)((int)out_size - used), ")");
+    return;
+  }
+  if (box->has_explicit_bg_color) {
+    snprintf(out, out_size, "solid #%06X", box->bg_color);
+    return;
+  }
+  snprintf(out, out_size, "%s", type_str);
+}
+
+typedef struct {
+  void (*emit)(void *user_data, const char *line);
+  void *user_data;
+} DumpContext;
+
+static void dump_node_line(DumpContext *ctx, const LayoutNode *node,
+                           int depth) {
+  char line[512];
+  int used = 0;
+  for (int i = 0; i < depth; ++i) {
+    line[used++] = ' ';
+    line[used++] = ' ';
+  }
+  const LayoutBox *box = &node->box;
+  char bg[128];
+  dump_background(bg, sizeof(bg), box);
+  const char *align_str = box->text_align == FDM_ALIGN_CENTER
+                              ? "center"
+                              : (box->text_align == FDM_ALIGN_RIGHT ? "right"
+                                                                    : "left");
+  used += snprintf(
+      line + used, sizeof(line) - (size_t)used,
+      "<%s> box=(%d,%d,%d,%d) margin=(%d,%d,%d,%d) padding=(%d,%d,%d,%d) "
+      "border=(%d,%d,%d,%d) font=%d lh=%d color=#%06X%s bg=%s align=%s",
+      element_type_name(node->type), box->x, box->y, box->width, box->height,
+      box->margin.top, box->margin.right, box->margin.bottom, box->margin.left,
+      box->padding.top, box->padding.right, box->padding.bottom,
+      box->padding.left, box->border.top, box->border.right, box->border.bottom,
+      box->border.left, box->font_size, box->line_height, box->color,
+      node->type == ELEMENT_UNDERLINE || node->type == ELEMENT_LINK
+          ? " (u)"
+          : "",
+      bg, align_str);
+
+  if (node->text_content && node->text_content[0] != '\0') {
+    used += snprintf(line + used, sizeof(line) - (size_t)used, " text=\"%s\"",
+                     node->text_content);
+  }
+  if (node->form_value && node->form_value[0] != '\0') {
+    used += snprintf(line + used, sizeof(line) - (size_t)used, " value=\"%s\"",
+                     node->form_value);
+  }
+
+  ctx->emit(ctx->user_data, line);
+}
+
+static void dump_node(const DumpContext *ctx, const LayoutNode *node,
+                      int depth) {
+  if (!node)
+    return;
+  dump_node_line((DumpContext *)ctx, node, depth);
+  for (LayoutNode *child = node->first_child; child;
+       child = child->next_sibling) {
+    dump_node(ctx, child, depth + 1);
+  }
+}
+
+void fdm_dump_layout_text(FdmSession *session,
+                          void (*emit)(void *user_data, const char *line),
+                          void *user_data) {
+  if (!session || !session->root || !emit)
+    return;
+  DumpContext ctx = {emit, user_data};
+  dump_node(&ctx, session->root, 0);
+}

@@ -51,6 +51,11 @@ void fdm_layout_document(FdmSession *session);
 // Paint a session's document onto its surface.
 void fdm_paint_document(FdmSession *session);
 
+// Serialize the session's layout tree to text (see fdm_dump_layout).
+void fdm_dump_layout_text(FdmSession *session,
+                          void (*emit)(void *user_data, const char *line),
+                          void *user_data);
+
 #ifdef __cplusplus
 }
 #endif

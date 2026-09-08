@@ -455,3 +455,12 @@ void fdm_input_backspace(FdmSurface *surface) {
 
   fdm_paint_document(session);
 }
+
+void fdm_dump_layout(FdmSurface *surface,
+                     void (*emit)(void *user_data, const char *line),
+                     void *user_data) {
+  FdmSession *session = find_session(surface);
+  if (!session)
+    return;
+  fdm_dump_layout_text(session, emit, user_data);
+}

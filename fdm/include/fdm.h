@@ -136,6 +136,11 @@ int fdm_content_height(FdmSurface *surface);
 void fdm_input_text(FdmSurface *surface, const char *text);
 void fdm_input_backspace(FdmSurface *surface);
 
+// Serialize the current document's layout tree to text.
+void fdm_dump_layout(FdmSurface *surface,
+                     void (*emit)(void *user_data, const char *line),
+                     void *user_data);
+
 // Memory helpers
 void fdm_buffer_free(FdmBuffer *buffer);
 char *fdm_strdup(const char *str);

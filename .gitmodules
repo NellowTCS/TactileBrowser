@@ -7,3 +7,6 @@
 [submodule "tactilebrowser_core/lexbor"]
 	path = fdm/lexbor
 	url = https://github.com/NellowTCS/lexbor.git
+[submodule "tests/wpt"]
+	path = tests/wpt
+	url = https://github.com/web-platform-tests/wpt.git

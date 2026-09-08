@@ -84,3 +84,22 @@ jobs:
           name: TactileBrowser_wasm
           path: wasm-src/dist/
           retention-days: 30
+
+  fdm-tests:
+    name: Run fdm core + conformance tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+      - name: Build tests
+        run: |
+          cmake -B build-tests -G Ninja -S tests -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-tests
+      - name: Run unit + reftest suites
+        run: ctest --test-dir build-tests --output-on-failure

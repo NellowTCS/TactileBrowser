@@ -1,0 +1,7 @@
+begin 800x600
+fill 0,0 800x600 #FFFFFF
+fill 0,10 800x164 #123456
+text 0,30 w=268 fs=32 #F0F6FC align=0 u=0 "Snapshot title"
+text 0,110 w=207 fs=14 #F0F6FC align=0 u=0 "Golden snapshot body text"
+text 0,154 w=74 fs=14 #4EA1FF align=0 u=1 "Snap link"
+end
