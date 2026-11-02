@@ -1,12 +1,12 @@
 [submodule "tactilebrowser_core/elk"]
-	path = fdm/elk
+	path = legacy/fdm/elk
 	url = https://github.com/cesanta/elk.git
 [submodule "tactilebrowser_core/lvgl"]
-	path = fdm/lvgl
+	path = legacy/fdm/lvgl
 	url = https://github.com/lvgl/lvgl.git
 [submodule "tactilebrowser_core/lexbor"]
-	path = fdm/lexbor
+	path = legacy/fdm/lexbor
 	url = https://github.com/NellowTCS/lexbor.git
 [submodule "tests/wpt"]
-	path = tests/wpt
+	path = legacy/tests/wpt
 	url = https://github.com/web-platform-tests/wpt.git
