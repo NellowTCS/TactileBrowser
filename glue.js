@@ -24,6 +24,14 @@
 
   const DEFAULT_PROXY_CHAIN = [
     {
+      label: 'BiBrowser (v1)',
+      template: 'http://bibrowser-backend.neeljaiswal23.workers.dev/?url={{URL}}'
+    },
+    {
+      label: 'BiBrowser (v2)',
+      template: 'https://bib-backend-v2.neeljaiswal23.workers.dev/{{URL}}'
+    },
+    {
       label: 'CORS Proxy',
       template: 'https://corsproxy.io/?{{URL}}'
     },
